@@ -20,9 +20,9 @@ export interface Track {
   trackArtist: string;
   duration: string;
   bpm: number | null;
-  bpmSource: "guessed" | "enriched" | null;
+  bpmSource: "guessed" | "enriched" | "manual" | null;
   key: string | null;   // Camelot key e.g. "8A", "11B"
-  keySource: "guessed" | "enriched" | null;
+  keySource: "guessed" | "enriched" | "manual" | null;
   roleOverride: string | null;
   // Denormalized release fields
   releaseId: number;
