@@ -3,10 +3,10 @@ export const dynamic = 'force-dynamic';
 
 const TRACKS = [
   { artist: 'Harvey Mason', title: 'How Does It Feel' },
-  { artist: 'Move D', title: 'Namlook XVI - Solitaire' },
-  { artist: 'Space Ghost', title: 'Private Paradise' },
-  { artist: 'Nerija', title: 'Gremi, Zemeljushka (Make The Ground Shake)' },
-  { artist: 'William DeVaughn', title: 'Be Thankful For What You\'ve Got' },
+  { artist: 'William DeVaughn', title: "Be Thankful For What You've Got" },
+  { artist: 'Ezy & Isaac', title: 'Let Your Body Move (Oba Balu Balu)' },
+  { artist: 'Atmosfear', title: 'Dancing In Outer Space' },
+  { artist: 'Frits Wentink', title: 'Horses In Cornfield' },
 ];
 
 export async function GET(req: NextRequest) {
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
           max_tokens: 100,
-          messages: [{ role: 'user', content: `What is the BPM and Camelot key of the specific track "${t.title}" by ${t.artist}?\nReply ONLY with JSON: {"bpm": 124, "key": "8A"}\nRules:\n- bpm: exact integer BPM if you are CERTAIN, otherwise null\n- key: Camelot wheel notation if CERTAIN, otherwise null\n- If EP/album title not a track, return {"bpm": null, "key": null}\n- Do NOT guess. Only JSON.` }]
+          messages: [{ role: 'user', content: `What is the BPM and Camelot key of "${t.title}" by ${t.artist}? Give your best estimate even if not 100% certain. Reply ONLY with JSON: {"bpm": 124, "key": "8A", "conf": "high"}. bpm = integer BPM, key = Camelot notation (e.g. 8A, 11B), conf = "high" if confident or "low" if uncertain. Return null only if completely unknown. No explanation, just JSON.` }]
         }),
         signal: AbortSignal.timeout(10000),
       });
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
       const text = data?.content?.[0]?.text || '';
       const match = text.match(/\{[\s\S]*\}/);
       const parsed = match ? JSON.parse(match[0]) : null;
-      results.push({ ...t, bpm: parsed?.bpm, key: parsed?.key });
+      results.push({ ...t, bpm: parsed?.bpm, key: parsed?.key, conf: parsed?.conf, raw: text });
     } catch(e: unknown) { results.push({ ...t, error: String(e) }); }
     await new Promise(r => setTimeout(r, 300));
   }
