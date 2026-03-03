@@ -1,65 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 
+const TRACKS = [
+  { artist: 'Atmosfear', title: 'Dancing In Outer Space' },
+  { artist: 'Harvey Mason', title: 'How Does It Feel' },
+  { artist: 'William DeVaughn', title: "Be Thankful For What You've Got" },
+  { artist: 'Ezy & Isaac', title: 'Let Your Body Move (Oba Balu Balu)' },
+];
+
+const CAM_KEYS = ['1A','1B','2A','2B','3A','3B','4A','4B','5A','5B','6A','6B',
+                  '7A','7B','8A','8B','9A','9B','10A','10B','11A','11B','12A','12B'];
+
 export async function GET(req: NextRequest) {
-  const clientId = process.env.SPOTIFY_CLIENT_ID;
-  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
-  const results: Record<string, unknown> = {
-    has_id: !!clientId,
-    has_secret: !!clientSecret,
-    id_preview: clientId?.slice(0, 6),
-  };
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const results = [];
 
-  // Get token
-  const tokenRes = await fetch('https://accounts.spotify.com/api/token', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': 'Basic ' + Buffer.from(`${clientId}:${clientSecret}`).toString('base64'),
-    },
-    body: 'grant_type=client_credentials',
-  });
-  results.token_status = tokenRes.status;
-  const tokenData = await tokenRes.json();
-  results.token_data = tokenData;
-  if (!tokenData.access_token) return NextResponse.json(results);
+  for (const t of TRACKS) {
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey!, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 200,
+          tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+          messages: [{ role: 'user', content: `Search for the BPM and musical key of "${t.title}" by ${t.artist}. Look on Tunebat, Beatport, or similar DJ databases. Reply ONLY with JSON: {"bpm": 124, "key": "8A"} where key is in Camelot notation. No explanation.` }]
+        }),
+        signal: AbortSignal.timeout(20000),
+      });
 
-  const token = tokenData.access_token;
+      const data = await res.json();
+      const textBlocks = (data?.content || []).filter((b: {type:string}) => b.type === 'text');
+      const text = textBlocks.map((b: {text:string}) => b.text).join('');
+      const match = text.match(/\{[^{}]*"bpm"[^{}]*\}/);
+      const parsed = match ? JSON.parse(match[0]) : null;
+      const bpm = parsed?.bpm && typeof parsed.bpm === 'number' ? Math.round(parsed.bpm) : null;
+      const keyRaw = parsed?.key ? String(parsed.key).toUpperCase().trim() : null;
+      const key = keyRaw && CAM_KEYS.includes(keyRaw) ? keyRaw : null;
 
-  // Simple search
-  const searchRes = await fetch(
-    `https://api.spotify.com/v1/search?q=Atmosfear+Dancing+In+Outer+Space&type=track&limit=3`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-  results.search_status = searchRes.status;
-  const searchData = await searchRes.json();
-  const tracks = searchData?.tracks?.items || [];
-  results.tracks = tracks.map((t: {name:string; id:string; artists:{name:string}[]}) => ({
-    name: t.name, id: t.id, artist: t.artists?.[0]?.name
-  }));
+      results.push({ ...t, bpm, key, raw_text: text.slice(0, 200) });
+    } catch(e: unknown) { results.push({ ...t, error: String(e) }); }
 
-  if (tracks.length > 0) {
-    // Try audio-analysis
-    const id = tracks[0].id;
-    const aaRes = await fetch(`https://api.spotify.com/v1/audio-analysis/${id}`,
-      { headers: { Authorization: `Bearer ${token}` } });
-    results.audio_analysis_status = aaRes.status;
-    if (aaRes.ok) {
-      const aa = await aaRes.json();
-      results.tempo = aa?.track?.tempo;
-      results.key   = aa?.track?.key;
-      results.mode  = aa?.track?.mode;
-    }
-
-    // Try audio-features
-    const afRes = await fetch(`https://api.spotify.com/v1/audio-features/${id}`,
-      { headers: { Authorization: `Bearer ${token}` } });
-    results.audio_features_status = afRes.status;
-    if (afRes.ok) {
-      const af = await afRes.json();
-      results.tempo_af = af?.tempo;
-      results.key_af   = af?.key;
-    }
+    await new Promise(r => setTimeout(r, 500));
   }
 
   return NextResponse.json(results);
