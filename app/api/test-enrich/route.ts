@@ -4,7 +4,11 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: NextRequest) {
   const clientId = process.env.SPOTIFY_CLIENT_ID;
   const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
-  const results: Record<string, unknown> = {};
+  const results: Record<string, unknown> = {
+    has_id: !!clientId,
+    has_secret: !!clientSecret,
+    id_preview: clientId?.slice(0, 6),
+  };
 
   // Get token
   const tokenRes = await fetch('https://accounts.spotify.com/api/token', {
@@ -15,48 +19,47 @@ export async function GET(req: NextRequest) {
     },
     body: 'grant_type=client_credentials',
   });
-  const { access_token } = await tokenRes.json();
+  results.token_status = tokenRes.status;
+  const tokenData = await tokenRes.json();
+  results.token_data = tokenData;
+  if (!tokenData.access_token) return NextResponse.json(results);
 
-  // Search for track
+  const token = tokenData.access_token;
+
+  // Simple search
   const searchRes = await fetch(
-    `https://api.spotify.com/v1/search?q=Dancing+In+Outer+Space+Atmosfear&type=track&limit=1`,
-    { headers: { Authorization: `Bearer ${access_token}` } }
+    `https://api.spotify.com/v1/search?q=Atmosfear+Dancing+In+Outer+Space&type=track&limit=3`,
+    { headers: { Authorization: `Bearer ${token}` } }
   );
+  results.search_status = searchRes.status;
   const searchData = await searchRes.json();
-  const track = searchData?.tracks?.items?.[0];
-  results.track = { name: track?.name, artist: track?.artists?.[0]?.name, id: track?.id };
+  const tracks = searchData?.tracks?.items || [];
+  results.tracks = tracks.map((t: {name:string; id:string; artists:{name:string}[]}) => ({
+    name: t.name, id: t.id, artist: t.artists?.[0]?.name
+  }));
 
-  // Try audio-features (403 expected)
-  const featRes = await fetch(`https://api.spotify.com/v1/audio-features/${track?.id}`,
-    { headers: { Authorization: `Bearer ${access_token}` } });
-  results.audio_features_status = featRes.status;
+  if (tracks.length > 0) {
+    // Try audio-analysis
+    const id = tracks[0].id;
+    const aaRes = await fetch(`https://api.spotify.com/v1/audio-analysis/${id}`,
+      { headers: { Authorization: `Bearer ${token}` } });
+    results.audio_analysis_status = aaRes.status;
+    if (aaRes.ok) {
+      const aa = await aaRes.json();
+      results.tempo = aa?.track?.tempo;
+      results.key   = aa?.track?.key;
+      results.mode  = aa?.track?.mode;
+    }
 
-  // Try recommendations (includes tempo/key in seed response)
-  const recRes = await fetch(
-    `https://api.spotify.com/v1/recommendations?seed_tracks=${track?.id}&limit=1`,
-    { headers: { Authorization: `Bearer ${access_token}` } }
-  );
-  results.recommendations_status = recRes.status;
-  if (recRes.ok) {
-    const recData = await recRes.json();
-    results.recommendations_sample = recData?.tracks?.[0]?.name;
-  }
-
-  // Try track endpoint — sometimes includes tempo in preview
-  const trackRes = await fetch(`https://api.spotify.com/v1/tracks/${track?.id}`,
-    { headers: { Authorization: `Bearer ${access_token}` } });
-  const trackData = await trackRes.json();
-  results.track_fields = Object.keys(trackData);
-
-  // Try audio-analysis (different from audio-features)
-  const analysisRes = await fetch(`https://api.spotify.com/v1/audio-analysis/${track?.id}`,
-    { headers: { Authorization: `Bearer ${access_token}` } });
-  results.audio_analysis_status = analysisRes.status;
-  if (analysisRes.ok) {
-    const analysisData = await analysisRes.json();
-    results.analysis_tempo = analysisData?.track?.tempo;
-    results.analysis_key   = analysisData?.track?.key;
-    results.analysis_mode  = analysisData?.track?.mode;
+    // Try audio-features
+    const afRes = await fetch(`https://api.spotify.com/v1/audio-features/${id}`,
+      { headers: { Authorization: `Bearer ${token}` } });
+    results.audio_features_status = afRes.status;
+    if (afRes.ok) {
+      const af = await afRes.json();
+      results.tempo_af = af?.tempo;
+      results.key_af   = af?.key;
+    }
   }
 
   return NextResponse.json(results);
