@@ -46,8 +46,8 @@ function extractJSON(text: string): { bpm: number | null; key: string | null } |
   if (!text) return null;
   // Try to find JSON object with bpm field
   const patterns = [
-    /```json\s*(\{[^`]*\})\s*```/s,
-    /```\s*(\{[^`]*\})\s*```/s,
+    /```json[\s\S]*?(\{[\s\S]*?\})[\s\S]*?```/,
+    /```[\s\S]*?(\{[\s\S]*?\})[\s\S]*?```/,
     /(\{"bpm"[^}]+\})/,
     /(\{[^}]*"bpm"[^}]*\})/,
   ];
