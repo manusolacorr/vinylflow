@@ -32,11 +32,14 @@ async function tryClaude(artist: string, title: string): Promise<{ bpm: number |
         max_tokens: 100,
         messages: [{
           role: 'user',
-          content: `What is the BPM and musical key of "${title}" by ${artist}?
-Reply ONLY with a JSON object like: {"bpm": 124, "key": "8A"}
-- bpm: integer beats per minute, or null if unknown
-- key: Camelot notation (e.g. "8A", "11B"), or null if unknown
-No explanation, just the JSON.`
+          content: `What is the BPM and Camelot key of the specific track "${title}" by ${artist}?
+Reply ONLY with JSON: {"bpm": 124, "key": "8A"}
+Rules:
+- bpm: exact integer BPM if you are CERTAIN, otherwise null
+- key: Camelot wheel notation (e.g. "8A", "11B") if you are CERTAIN, otherwise null
+- If this is an EP/album title rather than a track name, return {"bpm": null, "key": null}
+- If you are not sure, return null — do NOT guess
+No explanation, only JSON.`
         }]
       }),
       signal: AbortSignal.timeout(10000),
