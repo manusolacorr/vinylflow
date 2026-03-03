@@ -15,7 +15,8 @@
     "react-dom": "^18",
     "iron-session": "^8.0.1",
     "oauth-1.0a": "^2.2.6",
-    "crypto-js": "^4.2.0"
+    "crypto-js": "^4.2.0",
+    "@google/generative-ai": "^0.24.0"
   },
   "devDependencies": {
     "@types/node": "^20",
