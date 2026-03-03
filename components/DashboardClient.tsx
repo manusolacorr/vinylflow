@@ -42,26 +42,31 @@ function flattenRaw(releases: RawRelease[]): Release[] {
     const label  = (bi.labels || []).map(l => l.name).join(', ') || '';
     const tracks: Track[] = [];
     const tl = r.basic_information_tracklist || [];
-    tl.forEach((t, i) => {
-      if (!t.title) return;
-      const pos = t.position || String(i + 1);
+    if (tl.length === 0) {
+      // No tracklist data — create one placeholder track per release
       tracks.push({
-        id: `${bi.id}_${pos}`,
-        title: t.title,
-        pos,
-        trackArtist: (t.artists || []).map((a: { name: string }) => a.name).join(', ') || artist,
-        duration: t.duration || '',
-        bpm: null, bpmSource: null,
-        key: null, keySource: null,
-        roleOverride: null,
-        releaseId: bi.id,
-        releaseTitle: bi.title,
-        releaseArtist: artist,
-        thumb: bi.thumb || null,
-        year: bi.year || 0,
-        genres: bi.genres || [],
-        styles: bi.styles || [],
+        id: `${bi.id}_1`, title: bi.title, pos: 'A1',
+        trackArtist: artist, duration: '',
+        bpm: null, bpmSource: null, key: null, keySource: null,
+        roleOverride: null, releaseId: bi.id, releaseTitle: bi.title,
+        releaseArtist: artist, thumb: bi.thumb || null,
+        year: bi.year || 0, genres: bi.genres || [], styles: bi.styles || [],
       });
+    } else {
+      tl.forEach((t, i) => {
+        if (!t.title) return;
+        const pos = t.position || String(i + 1);
+        tracks.push({
+          id: `${bi.id}_${pos}`, title: t.title, pos,
+          trackArtist: (t.artists || []).map((a: { name: string }) => a.name).join(', ') || artist,
+          duration: t.duration || '', bpm: null, bpmSource: null,
+          key: null, keySource: null, roleOverride: null,
+          releaseId: bi.id, releaseTitle: bi.title, releaseArtist: artist,
+          thumb: bi.thumb || null, year: bi.year || 0,
+          genres: bi.genres || [], styles: bi.styles || [],
+        });
+      });
+    });
     });
     return { id: bi.id, title: bi.title, artist, genres: bi.genres || [],
              styles: bi.styles || [], year: bi.year || 0, label,
