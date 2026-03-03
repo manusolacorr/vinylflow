@@ -1,6 +1,9 @@
 
 'use client';
+import TrackEditor from './TrackEditor';
+import EssentiaAnalyser from './EssentiaAnalyser';
 import { useState, useCallback, useMemo } from 'react';
+import EssentiaAnalyser from './EssentiaAnalyser';
 import {
   ROLES, ROLE_IDS, assignRole, roleOf,
   camCompat, bpmBridge, compatColor,
@@ -80,6 +83,8 @@ export default function DashboardClient({ user }: { user: User }) {
   const [filterOpen, setFilterOpen] = useState(false);
   const [djSet, setDjSet] = useState<Track[]>([]);
   const [tab, setTab] = useState<'library' | 'set' | 'analysis'>('library');
+  const [analysingId, setAnalysingId] = useState<string | null>(null);
+  const [editingTrack, setEditingTrack] = useState<Track | null>(null);
   const [page, setPage] = useState(1);
 
   const allGenres  = useMemo(() => Array.from(new Set(releases.flatMap(r => r.genres))).sort(), [releases]);
@@ -221,8 +226,34 @@ export default function DashboardClient({ user }: { user: User }) {
   function removeFromSet(id: string) { setDjSet(s => s.filter(t => t.id !== id)); }
   function moveUp(i: number) { if (i===0) return; setDjSet(s => { const a=[...s]; [a[i-1],a[i]]=[a[i],a[i-1]]; return a; }); }
   function moveDown(i: number) { setDjSet(s => { if (i>=s.length-1) return s; const a=[...s]; [a[i],a[i+1]]=[a[i+1],a[i]]; return a; }); }
+  function handleAnalysisResult(trackId: string, bpm: number, key: string) {
+    // Update in releases
+    setReleases(prev => prev.map(r => ({
+      ...r,
+      tracks: r.tracks.map(t => t.id === trackId
+        ? { ...t, bpm, key, bpmSource: 'enriched' as const, keySource: 'enriched' as const }
+        : t)
+    })));
+    // Update in set
+    setDjSet(prev => prev.map(t => t.id === trackId
+      ? { ...t, bpm, key, bpmSource: 'enriched' as const, keySource: 'enriched' as const }
+      : t));
+    setAnalysingId(null);
+  }
+
   function autoSuggest() { const pool=filteredTracks.length>0?filteredTracks:allTracks(releases); setDjSet(engine1BuildSet(pool,20)); setTab('set'); }
   function smartSort() { if (djSet.length>1) setDjSet(engine2SortSet(djSet)); }
+  function updateTrackBpmKey(id: string, bpm: number | null, key: string | null) {
+    setReleases(prev => prev.map(r => ({
+      ...r,
+      tracks: r.tracks.map(t => t.id === id
+        ? { ...t, bpm: bpm ?? t.bpm, key: key ?? t.key, bpmSource: bpm ? 'manual' as const : t.bpmSource, keySource: key ? 'manual' as const : t.keySource }
+        : t)
+    })));
+    setDjSet(prev => prev.map(t => t.id === id
+      ? { ...t, bpm: bpm ?? t.bpm, key: key ?? t.key, bpmSource: bpm ? 'manual' as const : t.bpmSource, keySource: key ? 'manual' as const : t.keySource }
+      : t));
+  }
   function toggleFilter<T>(setter: React.Dispatch<React.SetStateAction<Set<T>>>, val: T) {
     setter(prev => { const s=new Set(prev); s.has(val)?s.delete(val):s.add(val); return s; }); setPage(1);
   }
@@ -348,8 +379,19 @@ export default function DashboardClient({ user }: { user: User }) {
                         </div>
                         {t.key && <span style={{ fontSize:'0.65rem', fontWeight:700, color: t.keySource==='enriched' ? '#2e7d52' : T.accent, flexShrink:0 }}>{t.key}</span>}
                         {t.bpm && <span style={{ fontSize:'0.65rem', color: t.bpmSource==='enriched' ? '#2e7d52' : T.muted, flexShrink:0 }}>{t.bpm}</span>}
+                        <button onClick={() => setEditingTrack(t)} style={{ ...btn('ghost'), padding:'2px 6px', fontSize:'0.7rem', color:T.muted }} title="Edit BPM/Key">✏</button>
+                        <button onClick={() => setAnalysingId(analysingId === t.id ? null : t.id)} title="Analyse BPM/Key" style={{ ...btn('ghost'), padding:'2px 6px', fontSize:'0.7rem', color: t.bpmSource==='enriched' ? T.green : T.muted }}>🎵</button>
                         <button onClick={() => added?removeFromSet(t.id):addToSet(t)} style={{ ...btn(added?'secondary':'primary'), padding:'2px 8px', fontSize:'0.7rem', background:added?T.surface2:T.accent, color:added?T.muted:'#fff' }}>{added?'✓':'+'}</button>
                       </div>
+                    {analysingId === t.id && (
+                      <div style={{ padding: '4px 8px 6px 36px' }}>
+                        <EssentiaAnalyser
+                          trackName={t.title}
+                          onResult={r => handleAnalysisResult(t.id, r.bpm, r.key)}
+                        />
+                      </div>
+                    )}
+                    </div>
                     );
                   })
               }
@@ -406,6 +448,7 @@ export default function DashboardClient({ user }: { user: User }) {
                           <div style={{ display:'flex', gap:2 }}>
                             <button onClick={() => moveUp(i)} disabled={i===0} style={{ ...btn('ghost'), padding:'2px 5px', fontSize:'0.7rem' }}>↑</button>
                             <button onClick={() => moveDown(i)} disabled={i===djSet.length-1} style={{ ...btn('ghost'), padding:'2px 5px', fontSize:'0.7rem' }}>↓</button>
+                            <button onClick={() => setEditingTrack(t)} style={{ ...btn('ghost'), padding:'2px 5px', fontSize:'0.7rem', color:T.muted }}>✏</button>
                             <button onClick={() => removeFromSet(t.id)} style={{ ...btn('ghost'), padding:'2px 5px', fontSize:'0.7rem', color:'#c0392b' }}>✕</button>
                           </div>
                         </div>
@@ -457,6 +500,15 @@ export default function DashboardClient({ user }: { user: User }) {
           </div>
         )}
       </main>
+    </div>
+
+      {editingTrack && (
+        <TrackEditor
+          track={editingTrack}
+          onUpdate={updateTrackBpmKey}
+          onClose={() => setEditingTrack(null)}
+        />
+      )}
     </div>
   );
 }
