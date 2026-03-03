@@ -11,7 +11,11 @@ export async function GET(req: NextRequest) {
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey!, 'anthropic-version': '2023-06-01' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey!,
+        'anthropic-version': '2023-06-01'
+      },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 100,
@@ -21,9 +25,13 @@ export async function GET(req: NextRequest) {
     });
     results.status = res.status;
     const data = await res.json();
-    results.raw = data?.content?.[0]?.text;
-    const match = (results.raw as string)?.match(/\{[\s\S]*\}/);
-    if (match) results.parsed = JSON.parse(match[0]);
+    results.full_response = data;
+    const text = data?.content?.[0]?.text;
+    results.raw = text;
+    if (text) {
+      const match = text.match(/\{[\s\S]*\}/);
+      if (match) results.parsed = JSON.parse(match[0]);
+    }
   } catch(e: unknown) { results.error = e instanceof Error ? e.message : String(e); }
 
   return NextResponse.json(results);
