@@ -99,6 +99,8 @@ export default async function HomePage({ searchParams }: PageProps) {
         <p style={{ fontSize: '0.65rem', color: 'var(--muted)', marginTop: '0.8rem', textAlign: 'center' }}>
           You&apos;ll be redirected to Discogs to authorise access.
           We never see your password.
+        <p style={{ fontSize: '0.55rem', color: 'var(--muted)', marginTop: '1.5rem', textAlign: 'center' }}>
+          BPM data powered by <a href="https://getsongbpm.com" style={{ color: 'var(--muted)' }}>GetSongBPM</a>
         </p>
       </div>
     </main>
