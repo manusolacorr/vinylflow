@@ -123,86 +123,95 @@ export default function DashboardClient({ user }: { user: User }) {
     finally { setLoading(false); setLoadMsg(''); }
   }
 
-  // ── Expand tracklists ─────────────────────────────────────────────────
+  // ── Expand tracklists + enrich BPM/key ───────────────────────────────
   async function expandTracklists() {
     setEnriching(true); setEnrichProgress(0);
     const total = releases.length;
-    const updatedReleases = [...releases];
+    let workingReleases = [...releases];
 
-    for (let i = 0; i < updatedReleases.length; i++) {
-      setEnrichMsg(`Fetching tracklist ${i+1}/${total}: ${updatedReleases[i].title.slice(0,30)}...`);
-      setEnrichProgress(Math.round((i/total)*50)); // first 50% = tracklists
-
+    // ── Phase 1: fetch tracklists from Discogs ──────────────────────────
+    for (let i = 0; i < workingReleases.length; i++) {
+      setEnrichMsg(`Tracklists: ${i+1}/${total} — ${workingReleases[i].title.slice(0,28)}...`);
+      setEnrichProgress(Math.round((i / total) * 40));
       try {
-        const res = await fetch(`/api/release/${updatedReleases[i].id}`);
-        if (!res.ok) continue;
-        const detail: ReleaseDetail = await res.json();
-
-        if (detail.tracks && detail.tracks.length > 0) {
-          const tracks: Track[] = detail.tracks.map(t =>
-            makeTrack(detail.id, detail.title, detail.artist,
-              t.position, t.title, t.duration, t.artist,
-              detail.thumb || updatedReleases[i].thumb,
-              detail.year || updatedReleases[i].year,
-              detail.genres || updatedReleases[i].genres,
-              detail.styles || updatedReleases[i].styles,
-              detail.notesBpm || guessBPM(detail.genres || updatedReleases[i].genres, detail.styles || updatedReleases[i].styles),
-            )
-          );
-          updatedReleases[i] = { ...updatedReleases[i], tracks };
-        }
-      } catch { /* skip */ }
-
-      // Discogs rate limit: ~150ms between requests
-      await new Promise(res => setTimeout(res, 200));
-    }
-
-    setReleases([...updatedReleases]);
-    setEnrichMsg('Tracklists loaded! Now enriching BPM/key...');
-
-    // ── Enrich BPM + key via GetSongBPM ────────────────────────────────
-    const allT = updatedReleases.flatMap(r => r.tracks);
-    const total2 = allT.length;
-    const trackMap: Record<string, { bpm: number | null; key: string | null; source: string }> = {};
-
-    for (let i = 0; i < allT.length; i++) {
-      const t = allT[i];
-      setEnrichMsg(`Enriching ${i+1}/${total2}: ${t.title.slice(0,30)}...`);
-      setEnrichProgress(50 + Math.round((i/total2)*50)); // second 50% = enrichment
-
-      try {
-        const res = await fetch('/api/enrich', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ artist: t.trackArtist, title: t.title }),
-        });
+        const res = await fetch(`/api/release/${workingReleases[i].id}`);
         if (res.ok) {
-          const data = await res.json();
-          if (data.bpm || data.key) {
-            trackMap[t.id] = { bpm: data.bpm, key: data.key, source: data.source };
+          const detail: ReleaseDetail = await res.json();
+          if (detail.tracks?.length > 0) {
+            workingReleases[i] = {
+              ...workingReleases[i],
+              tracks: detail.tracks.map(t => makeTrack(
+                detail.id, detail.title, detail.artist,
+                t.position, t.title, t.duration, t.artist,
+                detail.thumb || workingReleases[i].thumb,
+                detail.year || workingReleases[i].year,
+                detail.genres || workingReleases[i].genres,
+                detail.styles || workingReleases[i].styles,
+                detail.notesBpm || guessBPM(detail.genres || workingReleases[i].genres, detail.styles || workingReleases[i].styles),
+              )),
+            };
           }
         }
       } catch { /* skip */ }
-
-      // Rate limit: ~350ms between enrichment requests
-      await new Promise(res => setTimeout(res, 350));
+      // Update UI every 10 releases so progress is visible
+      if (i % 10 === 9) setReleases([...workingReleases]);
+      await new Promise(r => setTimeout(r, 200));
     }
+    setReleases([...workingReleases]);
+    setEnrichProgress(40);
 
-    // Apply enriched data to releases
-    setReleases(prev => prev.map(r => ({
-      ...r,
-      tracks: r.tracks.map(t => {
-        const enriched = trackMap[t.id];
-        if (!enriched) return t;
-        return {
-          ...t,
-          bpm: enriched.bpm ?? t.bpm,
-          bpmSource: enriched.bpm ? 'enriched' as const : t.bpmSource,
-          key: enriched.key ?? t.key,
-          keySource: enriched.key ? 'enriched' as const : t.keySource,
-        };
-      }),
-    })));
+    // ── Phase 2: enrich BPM/key in parallel batches of 5 ───────────────
+    const allT = workingReleases.flatMap(r => r.tracks);
+    const total2 = allT.length;
+    const trackMap: Record<string, { bpm: number | null; key: string | null }> = {};
+    const BATCH = 5;
+
+    for (let i = 0; i < allT.length; i += BATCH) {
+      const batch = allT.slice(i, i + BATCH);
+      setEnrichMsg(`BPM/Key: ${Math.min(i+BATCH, total2)}/${total2} tracks...`);
+      setEnrichProgress(40 + Math.round((i / total2) * 60));
+
+      await Promise.all(batch.map(async t => {
+        try {
+          const res = await fetch('/api/enrich', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ artist: t.trackArtist, title: t.title }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.bpm || data.key) trackMap[t.id] = { bpm: data.bpm, key: data.key };
+          }
+        } catch { /* skip */ }
+      }));
+
+      // Apply batch results immediately so user sees updates in real time
+      if (Object.keys(trackMap).length > 0) {
+        workingReleases = workingReleases.map(r => ({
+          ...r,
+          tracks: r.tracks.map(t => {
+            const e = trackMap[t.id];
+            if (!e) return t;
+            return { ...t,
+              bpm: e.bpm ?? t.bpm, bpmSource: e.bpm ? 'enriched' as const : t.bpmSource,
+              key: e.key ?? t.key, keySource: e.key ? 'enriched' as const : t.keySource,
+            };
+          }),
+        }));
+        setReleases([...workingReleases]);
+        // Also update any matching tracks in the set
+        setDjSet(prev => prev.map(t => {
+          const e = trackMap[t.id];
+          if (!e) return t;
+          return { ...t,
+            bpm: e.bpm ?? t.bpm, bpmSource: e.bpm ? 'enriched' as const : t.bpmSource,
+            key: e.key ?? t.key, keySource: e.key ? 'enriched' as const : t.keySource,
+          };
+        }));
+      }
+
+      await new Promise(r => setTimeout(r, 400)); // rate limit between batches
+    }
 
     setEnriching(false); setEnrichMsg(''); setEnrichProgress(0);
   }
