@@ -4,7 +4,7 @@ import { useState, useCallback, useMemo } from 'react';
 import {
   ROLES, ROLE_IDS, assignRole, roleOf,
   camCompat, bpmBridge, compatColor,
-  pitchDrift, sameSide, decadeOf, visualCue,
+  pitchDrift, sameSide, decadeOf, visualCue, guessBPM,
   engine1BuildSet, engine2SortSet, setSuggestions,
 } from '@/lib/vinylflow';
 import type { Track, Release } from '@/lib/vinylflow';
@@ -36,7 +36,7 @@ function flattenRaw(rawReleases: RawRelease[]): Release[] {
       pos: 'A1',
       trackArtist: artist,
       duration: '',
-      bpm: null, bpmSource: null,
+      bpm: guessBPM(bi.genres || [], bi.styles || []), bpmSource: 'guessed',
       key: null, keySource: null,
       roleOverride: null,
       releaseId: bi.id,
