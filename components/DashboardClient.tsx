@@ -383,14 +383,14 @@ export default function DashboardClient({ user }: { user: User }) {
                         <button onClick={() => setAnalysingId(analysingId === t.id ? null : t.id)} title="Analyse BPM/Key" style={{ ...btn('ghost'), padding:'2px 6px', fontSize:'0.7rem', color: t.bpmSource==='enriched' ? T.green : T.muted }}>🎵</button>
                         <button onClick={() => added?removeFromSet(t.id):addToSet(t)} style={{ ...btn(added?'secondary':'primary'), padding:'2px 8px', fontSize:'0.7rem', background:added?T.surface2:T.accent, color:added?T.muted:'#fff' }}>{added?'✓':'+'}</button>
                       </div>
-                    {analysingId === t.id && (
-                      <div style={{ padding: '4px 8px 6px 36px' }}>
-                        <EssentiaAnalyser
-                          trackName={t.title}
-                          onResult={r => handleAnalysisResult(t.id, r.bpm, r.key)}
-                        />
-                      </div>
-                    )}
+                      {analysingId === t.id && (
+                        <div style={{ padding: '4px 8px 6px 8px' }}>
+                          <EssentiaAnalyser
+                            trackName={t.title}
+                            onResult={r => handleAnalysisResult(t.id, r.bpm, r.key)}
+                          />
+                        </div>
+                      )}
                     </div>
                     );
                   })
