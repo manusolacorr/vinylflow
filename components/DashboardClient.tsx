@@ -1,7 +1,5 @@
 
 'use client';
-import TrackEditor from './TrackEditor';
-import EssentiaAnalyser from './EssentiaAnalyser';
 import { useState, useCallback, useMemo } from 'react';
 import EssentiaAnalyser from './EssentiaAnalyser';
 import {
@@ -64,7 +62,7 @@ function flattenRaw(rawReleases: RawRelease[]): Release[] {
 function allTracks(releases: Release[]): Track[] { return releases.flatMap(r => r.tracks); }
 
 const PAGE = 30;
-const T = { bg: '#f7f6f3', surface: '#ffffff', surface2: '#f2f1ee', border: '#dddbd6', text: '#1a1916', muted: '#8a8680', accent: '#9a6c2e', accent2: '#5a4faa' };
+const T = { bg: '#f7f6f3', surface: '#ffffff', surface2: '#f2f1ee', border: '#dddbd6', text: '#1a1916', muted: '#8a8680', accent: '#9a6c2e', accent2: '#5a4faa', green: '#2e7d52' };
 const chip = (active: boolean, color: string): React.CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', border: `1px solid ${active ? color : T.border}`, background: active ? color : T.surface, color: active ? '#fff' : T.text, whiteSpace: 'nowrap' });
 const btn = (v: 'primary' | 'secondary' | 'ghost' = 'secondary'): React.CSSProperties => ({ padding: '5px 12px', borderRadius: 7, fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', border: v === 'ghost' ? 'none' : `1px solid ${T.border}`, background: v === 'primary' ? T.accent : v === 'ghost' ? 'transparent' : T.surface, color: v === 'primary' ? '#fff' : T.text });
 
@@ -83,9 +81,8 @@ export default function DashboardClient({ user }: { user: User }) {
   const [filterOpen, setFilterOpen] = useState(false);
   const [djSet, setDjSet] = useState<Track[]>([]);
   const [tab, setTab] = useState<'library' | 'set' | 'analysis'>('library');
-  const [analysingId, setAnalysingId] = useState<string | null>(null);
-  const [editingTrack, setEditingTrack] = useState<Track | null>(null);
   const [page, setPage] = useState(1);
+  const [analysingId, setAnalysingId] = useState<string | null>(null);
 
   const allGenres  = useMemo(() => Array.from(new Set(releases.flatMap(r => r.genres))).sort(), [releases]);
   const allDecades = useMemo(() => Array.from(new Set(releases.map(r => decadeOf(r.year)))).sort(), [releases]);
@@ -105,7 +102,6 @@ export default function DashboardClient({ user }: { user: User }) {
   const totalPages  = Math.ceil(filteredTracks.length / PAGE);
   const inSet = useCallback((id: string) => djSet.some(t => t.id === id), [djSet]);
 
-  // ── Load collection ───────────────────────────────────────────────────
   async function loadCollection() {
     setLoading(true); setError(''); setLoadMsg('Connecting to Discogs...');
     try {
@@ -128,13 +124,11 @@ export default function DashboardClient({ user }: { user: User }) {
     finally { setLoading(false); setLoadMsg(''); }
   }
 
-  // ── Expand tracklists + enrich BPM/key ───────────────────────────────
   async function expandTracklists() {
     setEnriching(true); setEnrichProgress(0);
     const total = releases.length;
     let workingReleases = [...releases];
 
-    // ── Phase 1: fetch tracklists from Discogs ──────────────────────────
     for (let i = 0; i < workingReleases.length; i++) {
       setEnrichMsg(`Tracklists: ${i+1}/${total} — ${workingReleases[i].title.slice(0,28)}...`);
       setEnrichProgress(Math.round((i / total) * 40));
@@ -158,14 +152,12 @@ export default function DashboardClient({ user }: { user: User }) {
           }
         }
       } catch { /* skip */ }
-      // Update UI every 10 releases so progress is visible
       if (i % 10 === 9) setReleases([...workingReleases]);
       await new Promise(r => setTimeout(r, 200));
     }
     setReleases([...workingReleases]);
     setEnrichProgress(40);
 
-    // ── Phase 2: enrich BPM/key in parallel batches of 5 ───────────────
     const allT = workingReleases.flatMap(r => r.tracks);
     const total2 = allT.length;
     const trackMap: Record<string, { bpm: number | null; key: string | null }> = {};
@@ -190,71 +182,38 @@ export default function DashboardClient({ user }: { user: User }) {
         } catch { /* skip */ }
       }));
 
-      // Apply batch results immediately so user sees updates in real time
       if (Object.keys(trackMap).length > 0) {
         workingReleases = workingReleases.map(r => ({
           ...r,
           tracks: r.tracks.map(t => {
             const e = trackMap[t.id];
             if (!e) return t;
-            return { ...t,
-              bpm: e.bpm ?? t.bpm, bpmSource: e.bpm ? 'enriched' as const : t.bpmSource,
-              key: e.key ?? t.key, keySource: e.key ? 'enriched' as const : t.keySource,
-            };
+            return { ...t, bpm: e.bpm ?? t.bpm, bpmSource: e.bpm ? 'enriched' as const : t.bpmSource, key: e.key ?? t.key, keySource: e.key ? 'enriched' as const : t.keySource };
           }),
         }));
         setReleases([...workingReleases]);
-        // Also update any matching tracks in the set
-        setDjSet(prev => prev.map(t => {
-          const e = trackMap[t.id];
-          if (!e) return t;
-          return { ...t,
-            bpm: e.bpm ?? t.bpm, bpmSource: e.bpm ? 'enriched' as const : t.bpmSource,
-            key: e.key ?? t.key, keySource: e.key ? 'enriched' as const : t.keySource,
-          };
-        }));
+        setDjSet(prev => prev.map(t => { const e = trackMap[t.id]; if (!e) return t; return { ...t, bpm: e.bpm ?? t.bpm, bpmSource: e.bpm ? 'enriched' as const : t.bpmSource, key: e.key ?? t.key, keySource: e.key ? 'enriched' as const : t.keySource }; }));
       }
-
-      await new Promise(r => setTimeout(r, 400)); // rate limit between batches
+      await new Promise(r => setTimeout(r, 400));
     }
-
     setEnriching(false); setEnrichMsg(''); setEnrichProgress(0);
   }
 
-  // ── Set ops ───────────────────────────────────────────────────────────
   function addToSet(t: Track) { if (!inSet(t.id)) setDjSet(s => [...s, t]); }
   function removeFromSet(id: string) { setDjSet(s => s.filter(t => t.id !== id)); }
   function moveUp(i: number) { if (i===0) return; setDjSet(s => { const a=[...s]; [a[i-1],a[i]]=[a[i],a[i-1]]; return a; }); }
   function moveDown(i: number) { setDjSet(s => { if (i>=s.length-1) return s; const a=[...s]; [a[i],a[i+1]]=[a[i+1],a[i]]; return a; }); }
+
   function handleAnalysisResult(trackId: string, bpm: number, key: string) {
-    // Update in releases
-    setReleases(prev => prev.map(r => ({
-      ...r,
-      tracks: r.tracks.map(t => t.id === trackId
-        ? { ...t, bpm, key, bpmSource: 'enriched' as const, keySource: 'enriched' as const }
-        : t)
-    })));
-    // Update in set
-    setDjSet(prev => prev.map(t => t.id === trackId
-      ? { ...t, bpm, key, bpmSource: 'enriched' as const, keySource: 'enriched' as const }
-      : t));
+    const update = (t: Track) => t.id === trackId ? { ...t, bpm, key, bpmSource: 'enriched' as const, keySource: 'enriched' as const } : t;
+    setReleases(prev => prev.map(r => ({ ...r, tracks: r.tracks.map(update) })));
+    setDjSet(prev => prev.map(update));
     setAnalysingId(null);
   }
 
   function autoSuggest() { const pool=filteredTracks.length>0?filteredTracks:allTracks(releases); setDjSet(engine1BuildSet(pool,20)); setTab('set'); }
   function smartSort() { if (djSet.length>1) setDjSet(engine2SortSet(djSet)); }
-  function updateTrackBpmKey(id: string, bpm: number | null, key: string | null) {
-    setReleases(prev => prev.map(r => ({
-      ...r,
-      tracks: r.tracks.map(t => t.id === id
-        ? { ...t, bpm: bpm ?? t.bpm, key: key ?? t.key, bpmSource: bpm ? 'manual' as const : t.bpmSource, keySource: key ? 'manual' as const : t.keySource }
-        : t)
-    })));
-    setDjSet(prev => prev.map(t => t.id === id
-      ? { ...t, bpm: bpm ?? t.bpm, key: key ?? t.key, bpmSource: bpm ? 'manual' as const : t.bpmSource, keySource: key ? 'manual' as const : t.keySource }
-      : t));
-  }
-  function toggleFilter<T>(setter: React.Dispatch<React.SetStateAction<Set<T>>>, val: T) {
+  function toggleFilter<F>(setter: React.Dispatch<React.SetStateAction<Set<F>>>, val: F) {
     setter(prev => { const s=new Set(prev); s.has(val)?s.delete(val):s.add(val); return s; }); setPage(1);
   }
 
@@ -304,7 +263,6 @@ export default function DashboardClient({ user }: { user: User }) {
         {error && <div style={{ background:'#fff5f5', borderBottom:`1px solid #c0392b`, padding:'0.5rem 1rem', fontSize:'0.75rem', color:'#c0392b' }}>⚠ {error}</div>}
         {enrichMsg && <div style={{ background:'#fffbf0', borderBottom:`1px solid ${T.accent}`, padding:'0.4rem 1rem', fontSize:'0.7rem', color:T.accent }}>{enrichMsg}</div>}
 
-        {/* Empty */}
         {!loading && releases.length === 0 && (
           <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center' }}>
             <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:12, padding:'2rem', maxWidth:420, textAlign:'center' }}>
@@ -316,7 +274,6 @@ export default function DashboardClient({ user }: { user: User }) {
           </div>
         )}
 
-        {/* Loading */}
         {loading && (
           <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, color:T.muted, fontSize:'0.8rem' }}>
             <span style={{ width:8, height:8, borderRadius:'50%', background:T.accent, display:'inline-block' }} />
@@ -367,31 +324,31 @@ export default function DashboardClient({ user }: { user: User }) {
                 : pagedTracks.map(t => {
                     const role = roleOf(t); const added = inSet(t.id);
                     return (
-                      <div key={t.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 8px', borderRadius:7, marginBottom:2, background:T.surface, border:`1px solid ${T.border}` }}>
-                        <div style={{ width:8, height:8, borderRadius:'50%', background:role.color, flexShrink:0 }} title={role.label} />
-                        {t.thumb
-                          ? <img src={t.thumb} alt="" style={{ width:28, height:28, borderRadius:4, objectFit:'cover', flexShrink:0 }} />
-                          : <div style={{ width:28, height:28, borderRadius:4, background:T.surface2, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.9rem', flexShrink:0 }}>{visualCue(t.releaseId)}</div>
-                        }
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontSize:'0.78rem', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.title}</div>
-                          <div style={{ fontSize:'0.65rem', color:T.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.trackArtist} · {t.pos}{t.year ? ` · ${t.year}` : ''}</div>
+                      <div key={t.id} style={{ marginBottom:2 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 8px', borderRadius: analysingId === t.id ? '7px 7px 0 0' : 7, background:T.surface, border:`1px solid ${T.border}`, borderBottom: analysingId === t.id ? 'none' : `1px solid ${T.border}` }}>
+                          <div style={{ width:8, height:8, borderRadius:'50%', background:role.color, flexShrink:0 }} title={role.label} />
+                          {t.thumb
+                            ? <img src={t.thumb} alt="" style={{ width:28, height:28, borderRadius:4, objectFit:'cover', flexShrink:0 }} />
+                            : <div style={{ width:28, height:28, borderRadius:4, background:T.surface2, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.9rem', flexShrink:0 }}>{visualCue(t.releaseId)}</div>
+                          }
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontSize:'0.78rem', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.title}</div>
+                            <div style={{ fontSize:'0.65rem', color:T.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.trackArtist} · {t.pos}{t.year ? ` · ${t.year}` : ''}</div>
+                          </div>
+                          {t.key && <span style={{ fontSize:'0.65rem', fontWeight:700, color: t.keySource==='enriched' ? T.green : T.accent, flexShrink:0 }}>{t.key}</span>}
+                          {t.bpm && <span style={{ fontSize:'0.65rem', color: t.bpmSource==='enriched' ? T.green : T.muted, flexShrink:0 }}>{t.bpm}</span>}
+                          <button onClick={() => setAnalysingId(analysingId === t.id ? null : t.id)} title="Analyse via mic or file" style={{ ...btn('ghost'), padding:'2px 6px', fontSize:'0.75rem', color: t.bpmSource==='enriched' ? T.green : T.muted }}>🎵</button>
+                          <button onClick={() => added?removeFromSet(t.id):addToSet(t)} style={{ ...btn(added?'secondary':'primary'), padding:'2px 8px', fontSize:'0.7rem', background:added?T.surface2:T.accent, color:added?T.muted:'#fff' }}>{added?'✓':'+'}</button>
                         </div>
-                        {t.key && <span style={{ fontSize:'0.65rem', fontWeight:700, color: t.keySource==='enriched' ? '#2e7d52' : T.accent, flexShrink:0 }}>{t.key}</span>}
-                        {t.bpm && <span style={{ fontSize:'0.65rem', color: t.bpmSource==='enriched' ? '#2e7d52' : T.muted, flexShrink:0 }}>{t.bpm}</span>}
-                        <button onClick={() => setEditingTrack(t)} style={{ ...btn('ghost'), padding:'2px 6px', fontSize:'0.7rem', color:T.muted }} title="Edit BPM/Key">✏</button>
-                        <button onClick={() => setAnalysingId(analysingId === t.id ? null : t.id)} title="Analyse BPM/Key" style={{ ...btn('ghost'), padding:'2px 6px', fontSize:'0.7rem', color: t.bpmSource==='enriched' ? T.green : T.muted }}>🎵</button>
-                        <button onClick={() => added?removeFromSet(t.id):addToSet(t)} style={{ ...btn(added?'secondary':'primary'), padding:'2px 8px', fontSize:'0.7rem', background:added?T.surface2:T.accent, color:added?T.muted:'#fff' }}>{added?'✓':'+'}</button>
+                        {analysingId === t.id && (
+                          <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderTop:'none', borderRadius:'0 0 7px 7px', padding:'6px 10px 8px' }}>
+                            <EssentiaAnalyser
+                              trackName={`${t.title} — ${t.trackArtist}`}
+                              onResult={r => handleAnalysisResult(t.id, r.bpm, r.key)}
+                            />
+                          </div>
+                        )}
                       </div>
-                      {analysingId === t.id && (
-                        <div style={{ padding: '4px 8px 6px 8px' }}>
-                          <EssentiaAnalyser
-                            trackName={t.title}
-                            onResult={r => handleAnalysisResult(t.id, r.bpm, r.key)}
-                          />
-                        </div>
-                      )}
-                    </div>
                     );
                   })
               }
@@ -443,12 +400,11 @@ export default function DashboardClient({ user }: { user: User }) {
                             <div style={{ fontSize:'0.78rem', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.title}</div>
                             <div style={{ fontSize:'0.65rem', color:T.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.trackArtist} · {t.pos}</div>
                           </div>
-                          {t.key && <span style={{ fontSize:'0.65rem', fontWeight:700, color: t.keySource==='enriched'?'#2e7d52':T.accent }}>{t.key}</span>}
-                          {t.bpm && <span style={{ fontSize:'0.65rem', color: t.bpmSource==='enriched'?'#2e7d52':T.muted }}>{t.bpm}</span>}
+                          {t.key && <span style={{ fontSize:'0.65rem', fontWeight:700, color: t.keySource==='enriched'?T.green:T.accent }}>{t.key}</span>}
+                          {t.bpm && <span style={{ fontSize:'0.65rem', color: t.bpmSource==='enriched'?T.green:T.muted }}>{t.bpm}</span>}
                           <div style={{ display:'flex', gap:2 }}>
                             <button onClick={() => moveUp(i)} disabled={i===0} style={{ ...btn('ghost'), padding:'2px 5px', fontSize:'0.7rem' }}>↑</button>
                             <button onClick={() => moveDown(i)} disabled={i===djSet.length-1} style={{ ...btn('ghost'), padding:'2px 5px', fontSize:'0.7rem' }}>↓</button>
-                            <button onClick={() => setEditingTrack(t)} style={{ ...btn('ghost'), padding:'2px 5px', fontSize:'0.7rem', color:T.muted }}>✏</button>
                             <button onClick={() => removeFromSet(t.id)} style={{ ...btn('ghost'), padding:'2px 5px', fontSize:'0.7rem', color:'#c0392b' }}>✕</button>
                           </div>
                         </div>
@@ -490,7 +446,7 @@ export default function DashboardClient({ user }: { user: User }) {
                         <span style={{ color:T.muted, width:20 }}>{i+1}→</span>
                         <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.title}</span>
                         {compat && <span style={{ fontWeight:700, color:compatColor(compat), flexShrink:0 }}>{compat}</span>}
-                        {bridge && <span style={{ color:bridge.ok?'#2e7d52':'#c0392b', flexShrink:0 }}>{bridge.l}</span>}
+                        {bridge && <span style={{ color:bridge.ok?T.green:'#c0392b', flexShrink:0 }}>{bridge.l}</span>}
                         {drift && <span style={{ color:drift.high?'#c0392b':T.muted, flexShrink:0 }}>{drift.sign}{drift.pct}%</span>}
                       </div>;
                     })}
@@ -500,15 +456,6 @@ export default function DashboardClient({ user }: { user: User }) {
           </div>
         )}
       </main>
-    </div>
-
-      {editingTrack && (
-        <TrackEditor
-          track={editingTrack}
-          onUpdate={updateTrackBpmKey}
-          onClose={() => setEditingTrack(null)}
-        />
-      )}
     </div>
   );
 }
