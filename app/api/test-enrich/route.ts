@@ -1,36 +1,63 @@
 import { NextRequest, NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 
-const TRACKS = [
-  { artist: 'Harvey Mason', title: 'How Does It Feel' },
-  { artist: 'William DeVaughn', title: "Be Thankful For What You've Got" },
-  { artist: 'Ezy & Isaac', title: 'Let Your Body Move (Oba Balu Balu)' },
-  { artist: 'Atmosfear', title: 'Dancing In Outer Space' },
-  { artist: 'Frits Wentink', title: 'Horses In Cornfield' },
-];
-
 export async function GET(req: NextRequest) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  const results = [];
-  for (const t of TRACKS) {
-    try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey!, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 100,
-          messages: [{ role: 'user', content: `What is the BPM and Camelot key of "${t.title}" by ${t.artist}? Give your best estimate even if not 100% certain. Reply ONLY with JSON: {"bpm": 124, "key": "8A", "conf": "high"}. bpm = integer BPM, key = Camelot notation (e.g. 8A, 11B), conf = "high" if confident or "low" if uncertain. Return null only if completely unknown. No explanation, just JSON.` }]
-        }),
-        signal: AbortSignal.timeout(10000),
-      });
-      const data = await res.json();
-      const text = data?.content?.[0]?.text || '';
-      const match = text.match(/\{[\s\S]*\}/);
-      const parsed = match ? JSON.parse(match[0]) : null;
-      results.push({ ...t, bpm: parsed?.bpm, key: parsed?.key, conf: parsed?.conf, raw: text });
-    } catch(e: unknown) { results.push({ ...t, error: String(e) }); }
-    await new Promise(r => setTimeout(r, 300));
+  const clientId = process.env.SPOTIFY_CLIENT_ID;
+  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+  const results: Record<string, unknown> = {};
+
+  // Get token
+  const tokenRes = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': 'Basic ' + Buffer.from(`${clientId}:${clientSecret}`).toString('base64'),
+    },
+    body: 'grant_type=client_credentials',
+  });
+  const { access_token } = await tokenRes.json();
+
+  // Search for track
+  const searchRes = await fetch(
+    `https://api.spotify.com/v1/search?q=Dancing+In+Outer+Space+Atmosfear&type=track&limit=1`,
+    { headers: { Authorization: `Bearer ${access_token}` } }
+  );
+  const searchData = await searchRes.json();
+  const track = searchData?.tracks?.items?.[0];
+  results.track = { name: track?.name, artist: track?.artists?.[0]?.name, id: track?.id };
+
+  // Try audio-features (403 expected)
+  const featRes = await fetch(`https://api.spotify.com/v1/audio-features/${track?.id}`,
+    { headers: { Authorization: `Bearer ${access_token}` } });
+  results.audio_features_status = featRes.status;
+
+  // Try recommendations (includes tempo/key in seed response)
+  const recRes = await fetch(
+    `https://api.spotify.com/v1/recommendations?seed_tracks=${track?.id}&limit=1`,
+    { headers: { Authorization: `Bearer ${access_token}` } }
+  );
+  results.recommendations_status = recRes.status;
+  if (recRes.ok) {
+    const recData = await recRes.json();
+    results.recommendations_sample = recData?.tracks?.[0]?.name;
   }
+
+  // Try track endpoint — sometimes includes tempo in preview
+  const trackRes = await fetch(`https://api.spotify.com/v1/tracks/${track?.id}`,
+    { headers: { Authorization: `Bearer ${access_token}` } });
+  const trackData = await trackRes.json();
+  results.track_fields = Object.keys(trackData);
+
+  // Try audio-analysis (different from audio-features)
+  const analysisRes = await fetch(`https://api.spotify.com/v1/audio-analysis/${track?.id}`,
+    { headers: { Authorization: `Bearer ${access_token}` } });
+  results.audio_analysis_status = analysisRes.status;
+  if (analysisRes.ok) {
+    const analysisData = await analysisRes.json();
+    results.analysis_tempo = analysisData?.track?.tempo;
+    results.analysis_key   = analysisData?.track?.key;
+    results.analysis_mode  = analysisData?.track?.mode;
+  }
+
   return NextResponse.json(results);
 }
