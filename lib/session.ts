@@ -1,4 +1,4 @@
-import type { IronSessionOptions } from 'iron-session';
+import type { SessionOptions } from 'iron-session';
 
 export interface SessionData {
   // Temporary OAuth credentials (during handshake only)
@@ -11,7 +11,7 @@ export interface SessionData {
   user?: { id: number; username: string; avatar_url: string; };
 }
 
-export const sessionOptions: IronSessionOptions = {
+export const sessionOptions: SessionOptions = {
   cookieName: 'vinylflow_session',
   password: process.env.SESSION_SECRET as string,
   cookieOptions: {
@@ -21,7 +21,3 @@ export const sessionOptions: IronSessionOptions = {
     maxAge: 60 * 60 * 24 * 30, // 30 days
   },
 };
-
-declare module 'iron-session' {
-  interface IronSessionData extends SessionData {}
-}
