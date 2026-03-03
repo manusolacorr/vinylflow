@@ -83,6 +83,9 @@ export default function DashboardClient({ user }: { user: User }) {
   const [tab, setTab] = useState<'library' | 'set' | 'analysis'>('library');
   const [page, setPage] = useState(1);
   const [analysingId, setAnalysingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editBpm, setEditBpm] = useState('');
+  const [editKey, setEditKey] = useState('');
 
   const allGenres  = useMemo(() => Array.from(new Set(releases.flatMap(r => r.genres))).sort(), [releases]);
   const allDecades = useMemo(() => Array.from(new Set(releases.map(r => decadeOf(r.year)))).sort(), [releases]);
@@ -173,7 +176,7 @@ export default function DashboardClient({ user }: { user: User }) {
           const res = await fetch('/api/enrich', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ artist: t.trackArtist, title: t.title }),
+            body: JSON.stringify({ artist: t.trackArtist, title: t.title, genres: t.genres || [], styles: t.styles || [] }),
           });
           if (res.ok) {
             const data = await res.json();
@@ -209,6 +212,21 @@ export default function DashboardClient({ user }: { user: User }) {
     setReleases(prev => prev.map(r => ({ ...r, tracks: r.tracks.map(update) })));
     setDjSet(prev => prev.map(update));
     setAnalysingId(null);
+  }
+
+  function openEdit(t: Track) {
+    setEditingId(t.id);
+    setEditBpm(t.bpm ? String(t.bpm) : '');
+    setEditKey(t.key || '');
+    setAnalysingId(null);
+  }
+  function saveEdit(id: string) {
+    const bpm = parseInt(editBpm) || null;
+    const key = editKey.trim().toUpperCase() || null;
+    const update = (t: Track) => t.id === id ? { ...t, bpm: bpm ?? t.bpm, key: key ?? t.key, bpmSource: bpm ? 'manual' as const : t.bpmSource, keySource: key ? 'manual' as const : t.keySource } : t;
+    setReleases(prev => prev.map(r => ({ ...r, tracks: r.tracks.map(update) })));
+    setDjSet(prev => prev.map(update));
+    setEditingId(null);
   }
 
   function autoSuggest() { const pool=filteredTracks.length>0?filteredTracks:allTracks(releases); setDjSet(engine1BuildSet(pool,20)); setTab('set'); }
@@ -338,6 +356,7 @@ export default function DashboardClient({ user }: { user: User }) {
                           {t.key && <span style={{ fontSize:'0.65rem', fontWeight:700, color: t.keySource==='enriched' ? T.green : T.accent, flexShrink:0 }}>{t.key}</span>}
                           {t.bpm && <span style={{ fontSize:'0.65rem', color: t.bpmSource==='enriched' ? T.green : T.muted, flexShrink:0 }}>{t.bpm}</span>}
                           <button onClick={() => setAnalysingId(analysingId === t.id ? null : t.id)} title="Analyse via mic or file" style={{ ...btn('ghost'), padding:'2px 6px', fontSize:'0.75rem', color: t.bpmSource==='enriched' ? T.green : T.muted }}>🎵</button>
+                          <button onClick={() => editingId === t.id ? setEditingId(null) : openEdit(t)} title="Edit BPM/Key manually" style={{ ...btn('ghost'), padding:'2px 6px', fontSize:'0.7rem', color: t.bpmSource==='manual' ? T.accent : T.muted }}>✏</button>
                           <button onClick={() => added?removeFromSet(t.id):addToSet(t)} style={{ ...btn(added?'secondary':'primary'), padding:'2px 8px', fontSize:'0.7rem', background:added?T.surface2:T.accent, color:added?T.muted:'#fff' }}>{added?'✓':'+'}</button>
                         </div>
                         {analysingId === t.id && (
@@ -346,6 +365,24 @@ export default function DashboardClient({ user }: { user: User }) {
                               trackName={`${t.title} — ${t.trackArtist}`}
                               onResult={r => handleAnalysisResult(t.id, r.bpm, r.key)}
                             />
+                          </div>
+                        )}
+                        {editingId === t.id && (
+                          <div style={{ background:T.surface, border:`1px solid ${T.accent}`, borderTop:'none', borderRadius:'0 0 7px 7px', padding:'8px 12px', display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                            <span style={{ fontSize:'0.65rem', color:T.muted, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em' }}>Manual Override</span>
+                            <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                              <label style={{ fontSize:'0.65rem', color:T.muted }}>BPM</label>
+                              <input type="number" value={editBpm} onChange={e => setEditBpm(e.target.value)} placeholder="120" min={40} max={220} style={{ width:60, padding:'3px 6px', borderRadius:5, border:`1px solid ${T.border}`, fontSize:'0.75rem', textAlign:'center' }} />
+                            </div>
+                            <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                              <label style={{ fontSize:'0.65rem', color:T.muted }}>Key</label>
+                              <select value={editKey} onChange={e => setEditKey(e.target.value)} style={{ padding:'3px 6px', borderRadius:5, border:`1px solid ${T.border}`, fontSize:'0.75rem' }}>
+                                <option value="">—</option>
+                                {['1A','1B','2A','2B','3A','3B','4A','4B','5A','5B','6A','6B','7A','7B','8A','8B','9A','9B','10A','10B','11A','11B','12A','12B'].map(k => <option key={k} value={k}>{k}</option>)}
+                              </select>
+                            </div>
+                            <button onClick={() => saveEdit(t.id)} style={{ ...btn('primary'), padding:'3px 10px', fontSize:'0.72rem' }}>Save</button>
+                            <button onClick={() => setEditingId(null)} style={{ ...btn(), padding:'3px 8px', fontSize:'0.72rem' }}>Cancel</button>
                           </div>
                         )}
                       </div>

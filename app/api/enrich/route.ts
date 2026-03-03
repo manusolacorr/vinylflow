@@ -1,168 +1,117 @@
 /**
  * POST /api/enrich
- * Body: { artist: string, title: string }
- * Returns: { bpm: number | null, key: string | null, source: string }
+ * Body: { artist, title, genres?, styles? }
+ * Returns: { bpm, key, source, confidence, correction }
  */
 import { NextRequest, NextResponse } from 'next/server';
-export const dynamic = 'force-dynamic';
-export const maxDuration = 60; // seconds — needed for web search
+import { validateBpmKey } from '@/lib/validateBpmKey';
+export const dynamic  = 'force-dynamic';
+export const maxDuration = 60;
 
 const CAM_KEYS = ['1A','1B','2A','2B','3A','3B','4A','4B','5A','5B','6A','6B',
                   '7A','7B','8A','8B','9A','9B','10A','10B','11A','11B','12A','12B'];
 
-// Convert standard key names to Camelot
 const KEY_TO_CAM: Record<string, string> = {
-  'C major':'8B','C minor':'5A','C# major':'3B','C# minor':'12A','Db major':'3B','Db minor':'12A',
-  'D major':'10B','D minor':'7A','D# major':'5B','D# minor':'2A','Eb major':'5B','Eb minor':'2A',
-  'E major':'12B','E minor':'9A','F major':'7B','F minor':'4A',
-  'F# major':'2B','F# minor':'11A','Gb major':'2B','Gb minor':'11A',
-  'G major':'9B','G minor':'6A','G# major':'4B','G# minor':'1A','Ab major':'4B','Ab minor':'1A',
-  'A major':'11B','A minor':'8A','A# major':'6B','A# minor':'3A','Bb major':'6B','Bb minor':'3A',
-  'B major':'1B','B minor':'10A',
+  'c major':'8B','c minor':'5A','c# major':'3B','c# minor':'12A','db major':'3B','db minor':'12A',
+  'd major':'10B','d minor':'7A','d# major':'5B','d# minor':'2A','eb major':'5B','eb minor':'2A',
+  'e major':'12B','e minor':'9A','f major':'7B','f minor':'4A',
+  'f# major':'2B','f# minor':'11A','gb major':'2B','gb minor':'11A',
+  'g major':'9B','g minor':'6A','g# major':'4B','g# minor':'1A','ab major':'4B','ab minor':'1A',
+  'a major':'11B','a minor':'8A','a# major':'6B','a# minor':'3A','bb major':'6B','bb minor':'3A',
+  'b major':'1B','b minor':'10A',
 };
 
-function normalizeToCamelot(raw: string): string | null {
-  if (!raw) return null;
-  const upper = raw.trim().toUpperCase();
-  if (CAM_KEYS.includes(upper)) return upper;
-  // Try direct key map
-  const lower = raw.trim().toLowerCase();
-  for (const [k, v] of Object.entries(KEY_TO_CAM)) {
-    if (lower.includes(k.toLowerCase())) return v;
-  }
-  // Try pattern: "G Major" "A Minor" etc
-  const m = raw.match(/([A-Ga-g][#b♯♭]?)\s*(major|minor|maj|min)/i);
-  if (m) {
-    const note = m[1].charAt(0).toUpperCase() + (m[1].slice(1).replace('♯','#').replace('♭','b'));
-    const qual = m[2].toLowerCase().startsWith('min') ? ' minor' : ' major';
-    const key = (note + qual).toLowerCase();
-    for (const [k, v] of Object.entries(KEY_TO_CAM)) {
-      if (k.toLowerCase() === key) return v;
-    }
-  }
+function normKey(raw: string): string | null {
+  const up = raw.trim().toUpperCase();
+  if (CAM_KEYS.includes(up)) return up;
+  const lo = raw.trim().toLowerCase().replace(/[♯]/g,'#').replace(/[♭]/g,'b');
+  if (KEY_TO_CAM[lo]) return KEY_TO_CAM[lo];
+  const m = lo.match(/^([a-g][#b]?)\s*(major|minor|maj|min)/);
+  if (m) return KEY_TO_CAM[`${m[1]} ${m[2].startsWith('min')?'minor':'major'}`] || null;
   return null;
 }
 
-function extractJSON(text: string): { bpm: number | null; key: string | null } | null {
-  if (!text) return null;
-  // Try to find JSON object with bpm field
-  const patterns = [
-    /```json[\s\S]*?(\{[\s\S]*?\})[\s\S]*?```/,
-    /```[\s\S]*?(\{[\s\S]*?\})[\s\S]*?```/,
-    /(\{"bpm"[^}]+\})/,
-    /(\{[^}]*"bpm"[^}]*\})/,
+function extractResult(text: string): { bpm: number | null; key: string | null } | null {
+  const attempts = [
+    text.match(/```(?:json)?\s*(\{[\s\S]*?"bpm"[\s\S]*?\})\s*```/),
+    text.match(/(\{"bpm"\s*:\s*\d[\s\S]*?\})/),
+    text.match(/(\{[\s\S]*?"bpm"\s*:[\s\S]*?\})/),
   ];
-  for (const p of patterns) {
-    const m = text.match(p);
-    if (m) {
-      try {
-        const parsed = JSON.parse(m[1]);
-        if ('bpm' in parsed || 'key' in parsed) {
-          const bpm = typeof parsed.bpm === 'number' ? Math.round(parsed.bpm) : null;
-          const keyRaw = parsed.key ? String(parsed.key) : null;
-          const key = keyRaw ? (normalizeToCamelot(keyRaw) || (CAM_KEYS.includes(keyRaw.toUpperCase()) ? keyRaw.toUpperCase() : null)) : null;
-          return { bpm, key };
-        }
-      } catch { continue; }
-    }
+  for (const m of attempts) {
+    if (!m) continue;
+    try {
+      const p = JSON.parse(m[1]);
+      const bpm = typeof p.bpm === 'number' ? Math.round(p.bpm) : null;
+      const key = p.key ? (normKey(String(p.key)) ?? null) : null;
+      if (bpm || key) return { bpm, key };
+    } catch { continue; }
   }
-  // Try extracting BPM and key from plain text as last resort
-  const bpmMatch = text.match(/\b(\d{2,3})\s*(?:BPM|bpm|Bpm)/);
-  const keyMatch = text.match(/(?:key|Key)[\s:]+([A-Ga-g][#b♯♭]?\s*(?:major|minor|maj|min|Major|Minor))/);
-  const camMatch = text.match(/\b(\d{1,2}[AB])\b/);
-  const bpm = bpmMatch ? parseInt(bpmMatch[1]) : null;
-  const key = keyMatch ? normalizeToCamelot(keyMatch[1]) : (camMatch && CAM_KEYS.includes(camMatch[1]) ? camMatch[1] : null);
+  const bpmM = text.match(/\b(\d{2,3})\s*(?:BPM|bpm)/);
+  const keyM = text.match(/(?:key|Key)\s*[=:]\s*["']?([A-Ga-g][#b]?\s*(?:major|minor|maj|min))/i);
+  const camM = text.match(/\b(\d{1,2}[ABab])\b/);
+  const bpm  = bpmM ? parseInt(bpmM[1]) : null;
+  const keyStr = keyM ? normKey(keyM[1]) : (camM ? camM[1].toUpperCase() : null);
+  const key  = keyStr && CAM_KEYS.includes(keyStr) ? keyStr : null;
   return (bpm || key) ? { bpm, key } : null;
 }
 
-async function enrichWithWebSearch(artist: string, title: string): Promise<{ bpm: number | null; key: string | null; source: string } | null> {
+async function searchWithClaude(artist: string, title: string, genres: string[], styles: string[]): Promise<{ bpm: number | null; key: string | null } | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
 
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1024,
-        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-        messages: [{
-          role: 'user',
-          content: `Find the BPM and musical key of the track "${title}" by ${artist}.
+  const genreHint = [...genres, ...styles].slice(0, 4).join(', ');
+  const prompt = `Find the BPM and musical key for "${title}" by ${artist}${genreHint ? ` (genre: ${genreHint})` : ''}.
 
-Search multiple sources: Tunebat, Beatport, Juno Download, 1001Tracklists, or any music database.
-Be persistent — if one search fails, try different search terms.
+Search Tunebat, Beatport, Juno Download, or any DJ music database.
 
-After searching, reply ONLY with this JSON (no other text):
-{"bpm": 126, "key": "9B"}
+IMPORTANT — Common detection errors to watch for:
+- House/Techno tracks: BPM should be 118–135. If you find ~60–65 BPM, it is half-time, double it.
+- Funk/Soul: BPM 80–120. If you find ~40–55, double it.
+- A "swing" rhythm may cause half-time detection — real groove BPM is typically double.
 
-Where:
-- bpm is the integer BPM
-- key is the Camelot wheel notation (e.g. "8A", "9B", "11A")
-- If key is given as "G Major" convert it: G Major = 9B, A Minor = 8A, etc.
-- Use null if truly not found after searching`
-        }]
-      }),
-      signal: AbortSignal.timeout(30000),
-    });
+Reply with ONLY this JSON on the last line:
+{"bpm": 123, "key": "11A"}
 
-    if (!res.ok) return null;
-    const data = await res.json();
+Camelot key reference: C maj=8B, Db=3B, D=10B, Eb=5B, E=12B, F=7B, Gb=2B, G=9B, Ab=4B, A=11B, Bb=6B, B=1B, C min=5A, Db min=12A, D min=7A, Eb min=2A, E min=9A, F min=4A, Gb min=11A, G min=6A, Ab min=1A, A min=8A, Bb min=3A, B min=10A`;
 
-    // Collect all text from response (including after tool use)
-    const allText = (data?.content || [])
-      .filter((b: {type: string}) => b.type === 'text')
-      .map((b: {text: string}) => b.text)
-      .join('\n');
-
-    const result = extractJSON(allText);
-    if (result?.bpm || result?.key) return { ...result, source: 'web_search' };
-    return null;
-  } catch { return null; }
-}
-
-// Fallback: Claude knowledge only
-async function enrichFromKnowledge(artist: string, title: string): Promise<{ bpm: number | null; key: string | null; source: string } | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return null;
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 200,
-        messages: [{ role: 'user', content: `What is the BPM and Camelot key of "${title}" by ${artist}? Reply ONLY with JSON: {"bpm": 124, "key": "8A"}. Use null if unknown.` }]
+        max_tokens: 1024,
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        messages: [{ role: 'user', content: prompt }],
       }),
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(55000),
     });
     if (!res.ok) return null;
     const data = await res.json();
-    const text = data?.content?.[0]?.text || '';
-    const result = extractJSON(text);
-    if (result?.bpm || result?.key) return { ...result, source: 'claude' };
-    return null;
+    const allText = (data?.content || []).filter((b: {type:string}) => b.type === 'text').map((b: {text:string}) => b.text).join('\n');
+    return extractResult(allText);
   } catch { return null; }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { artist, title } = await req.json();
+    const { artist, title, genres = [], styles = [] } = await req.json();
     if (!artist || !title) return NextResponse.json({ error: 'missing params' }, { status: 400 });
 
-    const webResult = await enrichWithWebSearch(artist, title);
-    if (webResult?.bpm || webResult?.key) return NextResponse.json(webResult);
+    const raw = await searchWithClaude(artist, title, genres, styles);
+    if (!raw) return NextResponse.json({ bpm: null, key: null, source: 'not_found', confidence: 'low', correction: null });
 
-    const knowledgeResult = await enrichFromKnowledge(artist, title);
-    if (knowledgeResult?.bpm || knowledgeResult?.key) return NextResponse.json(knowledgeResult);
+    // Run validation layer — catches half-time errors, out-of-range BPM
+    const validated = validateBpmKey(raw.bpm, raw.key, genres, styles, artist);
 
-    return NextResponse.json({ bpm: null, key: null, source: 'none' });
+    return NextResponse.json({
+      bpm: validated.bpm,
+      key: validated.key,
+      source: 'web_search',
+      confidence: validated.confidence,
+      correction: validated.correction,
+    });
   } catch (err: unknown) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown' }, { status: 500 });
+    return NextResponse.json({ bpm: null, key: null, source: 'error', confidence: 'low', correction: null });
   }
 }
