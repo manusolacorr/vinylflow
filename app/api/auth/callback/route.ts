@@ -10,7 +10,7 @@ import { cookies } from 'next/headers';
 import { getAccessToken, getDiscogsIdentity } from '@/lib/oauth';
 import { sessionOptions } from '@/lib/session';
 import type { SessionData } from '@/lib/session';
-
+export const dynamic = 'force-dynamic';
 export async function GET(req: NextRequest) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL!;
 

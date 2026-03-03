@@ -9,7 +9,7 @@ import { cookies } from 'next/headers';
 import { getRequestToken } from '@/lib/oauth';
 import { sessionOptions } from '@/lib/session';
 import type { SessionData } from '@/lib/session';
-
+export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     const { oauthToken, oauthTokenSecret, authorizeUrl } = await getRequestToken();
