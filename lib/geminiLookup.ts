@@ -107,7 +107,7 @@ C min=5A  Db min=12A  D min=7A  Eb min=2A  E min=9A  F min=4A  Gb min=11A  G min
 
 Respond ONLY with: {"key": "11A"}`;
 
-  const text = await claudeRequest('claude-sonnet-4-5-20251022', prompt, 50, apiKey);
+  const text = await claudeRequest('claude-sonnet-4-6', prompt, 50, apiKey);
   if (!text) return null;
   const parsed = parseResponse(text);
   return parsed?.key ?? null;

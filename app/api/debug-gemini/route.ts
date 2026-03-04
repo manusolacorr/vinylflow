@@ -19,7 +19,7 @@ Respond ONLY with: {"key": "11A"}`;
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5-20251022',
+        model: 'claude-sonnet-4-6',
         max_tokens: 50,
         messages: [{ role: 'user', content: prompt }],
       }),
@@ -27,7 +27,7 @@ Respond ONLY with: {"key": "11A"}`;
     });
     const data = await res.json();
     const raw = data?.content?.[0]?.text ?? '';
-    return NextResponse.json({ ok: res.ok, status: res.status, raw, model: 'claude-sonnet-4-5-20251022' });
+    return NextResponse.json({ ok: res.ok, status: res.status, raw, model: 'claude-sonnet-4-6' });
   } catch (e: unknown) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : String(e) });
   }
