@@ -63,11 +63,39 @@ function flattenRaw(rawReleases: RawRelease[]): Release[] {
 function allTracks(releases: Release[]): Track[] { return releases.flatMap(r => r.tracks); }
 
 const PAGE = 30;
-const T = { bg: '#f7f6f3', surface: '#ffffff', surface2: '#f2f1ee', border: '#dddbd6', text: '#1a1916', muted: '#8a8680', accent: '#9a6c2e', accent2: '#5a4faa', green: '#2e7d52' };
-const chip = (active: boolean, color: string): React.CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', border: `1px solid ${active ? color : T.border}`, background: active ? color : T.surface, color: active ? '#fff' : T.text, whiteSpace: 'nowrap' });
-const btn = (v: 'primary' | 'secondary' | 'ghost' = 'secondary'): React.CSSProperties => ({ padding: '5px 12px', borderRadius: 7, fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', border: v === 'ghost' ? 'none' : `1px solid ${T.border}`, background: v === 'primary' ? T.accent : v === 'ghost' ? 'transparent' : T.surface, color: v === 'primary' ? '#fff' : T.text });
+const THEMES = {
+  light: {
+    bg: '#f5f4f0', surface: '#ffffff', surface2: '#efede8', surface3: '#e8e5df',
+    border: '#d8d5ce', text: '#18170f', muted: '#7a7670',
+    accent: '#9a6c2e', accent2: '#5a4faa', green: '#2a7a48', red: '#b83232',
+    shadow: '0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04)',
+    shadowMd: '0 2px 8px rgba(0,0,0,0.10), 0 8px 24px rgba(0,0,0,0.06)',
+  },
+  dark: {
+    bg: '#141417', surface: '#1e1e22', surface2: '#252529', surface3: '#2c2c32',
+    border: '#35353d', text: '#eeedf0', muted: '#8a8a98',
+    accent: '#c8952e', accent2: '#7b6fd4', green: '#3fb06a', red: '#e05555',
+    shadow: '0 1px 3px rgba(0,0,0,0.4), 0 4px 12px rgba(0,0,0,0.3)',
+    shadowMd: '0 2px 8px rgba(0,0,0,0.5), 0 8px 24px rgba(0,0,0,0.4)',
+  },
+};
+type ThemeKey = keyof typeof THEMES;
 
 export default function DashboardClient({ user }: { user: User }) {
+  // ── Theme ──────────────────────────────────────────────────────────────
+  const [themeKey, setThemeKey] = useState<ThemeKey>(() => {
+    if (typeof window === 'undefined') return 'light';
+    return (localStorage.getItem('vf-theme') as ThemeKey) || 'light';
+  });
+  const toggleTheme = () => setThemeKey(k => {
+    const next = k === 'light' ? 'dark' : 'light';
+    localStorage.setItem('vf-theme', next);
+    return next;
+  });
+  const T = THEMES[themeKey];
+  const chip = (active: boolean, color: string): React.CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', border: `1px solid ${active ? color : T.border}`, background: active ? color : T.surface, color: active ? '#fff' : T.text, whiteSpace: 'nowrap', transition: 'all 0.15s' });
+  const btn = (v: 'primary' | 'secondary' | 'ghost' = 'secondary'): React.CSSProperties => ({ padding: '5px 12px', borderRadius: 7, fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', border: v === 'ghost' ? 'none' : `1px solid ${T.border}`, background: v === 'primary' ? T.accent : v === 'ghost' ? 'transparent' : T.surface, color: v === 'primary' ? '#fff' : T.text, transition: 'all 0.15s' });
+
   const [releases, setReleases] = useState<Release[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadMsg, setLoadMsg] = useState('');
@@ -360,14 +388,25 @@ export default function DashboardClient({ user }: { user: User }) {
   const totalTrackCount = allTracks(releases).length;
 
   return (
-    <div style={{ height:'100vh', display:'flex', flexDirection:'column', background:T.bg, fontFamily:'system-ui, sans-serif' }}>
+    <div style={{ height:'100vh', display:'flex', flexDirection:'column', background:T.bg, fontFamily:"'DM Sans', system-ui, sans-serif", transition:'background 0.2s, color 0.2s' }}>
+      {/* Global styles */}
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+        * { box-sizing: border-box; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: ${T.surface2}; }
+        ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: ${T.muted}; }
+        input, button { font-family: inherit; }
+        a { text-decoration: none; }
+      `}</style>
 
       {/* Header */}
-      <header style={{ background:T.surface, borderBottom:`1px solid ${T.border}`, height:48, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 1rem', flexShrink:0 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-          <span style={{ fontSize:'1rem', fontWeight:700, color:T.accent }}>vinyl.flow</span>
+      <header style={{ background:T.surface, borderBottom:`1px solid ${T.border}`, height:52, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 1.25rem', flexShrink:0, boxShadow: T.shadow }}>
+        <div style={{ display:'flex', alignItems:'center', gap:14 }}>
+          <span style={{ fontSize:'1.05rem', fontWeight:700, color:T.accent, letterSpacing:'-0.02em' }}>vinyl.flow</span>
           {releases.length > 0 && (['library','set','analysis','stickers'] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)} style={{ ...btn(tab===t?'primary':'ghost'), padding:'3px 10px', fontSize:'0.7rem' }}>
+            <button key={t} onClick={() => setTab(t)} style={{ ...btn(tab===t?'primary':'ghost'), padding:'4px 12px', fontSize:'0.7rem', borderRadius: 8, letterSpacing: '-0.01em' }}>
               {t==='library'?`Library (${filteredTracks.length})`:t==='set'?`Set (${djSet.length})`:t==='analysis'?'Analysis':'\uD83C\uDFF7 Stickers'}
             </button>
           ))}
@@ -396,7 +435,10 @@ export default function DashboardClient({ user }: { user: User }) {
           )}
           {user.avatar_url && <img src={user.avatar_url} alt="" style={{ width:24, height:24, borderRadius:'50%' }} />}
           <span style={{ fontSize:'0.75rem' }}>{user.username}</span>
-          <a href="/api/auth/logout" style={{ fontSize:'0.7rem', color:T.muted }}>Log out</a>
+          <button onClick={toggleTheme} title={themeKey === 'light' ? 'Switch to dark mode' : 'Switch to light mode'} style={{ background:'none', border:`1px solid ${T.border}`, borderRadius:7, cursor:'pointer', padding:'3px 8px', color:T.muted, fontSize:'0.85rem', lineHeight:1, transition:'all 0.15s' }}>
+            {themeKey === 'light' ? '🌙' : '☀️'}
+          </button>
+          <a href="/api/auth/logout" style={{ fontSize:'0.7rem', color:T.muted, fontWeight:500 }}>Log out</a>
         </div>
       </header>
 
@@ -406,7 +448,7 @@ export default function DashboardClient({ user }: { user: User }) {
 
         {!loading && releases.length === 0 && (
           <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:12, padding:'2rem', maxWidth:420, textAlign:'center' }}>
+            <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:16, padding:'2.5rem', maxWidth:420, textAlign:'center', boxShadow:T.shadowMd }}>
               <div style={{ fontSize:'2rem', marginBottom:'0.75rem' }}>🎛</div>
               <h2 style={{ fontSize:'1rem', fontWeight:700, marginBottom:'0.5rem' }}>Load your collection</h2>
               <p style={{ fontSize:'0.75rem', color:T.muted, lineHeight:1.7, marginBottom:'1.2rem' }}>Fetch all releases from Discogs and start building harmonic sets.</p>
@@ -431,7 +473,7 @@ export default function DashboardClient({ user }: { user: User }) {
                 {activePills.slice(0,5).map((p,i) => <span key={i} style={{ ...chip(true,p.color), fontSize:'0.65rem', padding:'2px 7px' }}>{p.label}</span>)}
                 {activePills.length===0 && <span style={{ fontSize:'0.65rem', color:T.muted, fontStyle:'italic' }}>no filters</span>}
               </div>
-              <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="Search tracks..." style={{ padding:'4px 10px', borderRadius:7, border:`1px solid ${T.border}`, fontSize:'0.75rem', width:180, outline:'none' }} />
+              <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="Search tracks..." style={{ padding:'5px 12px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:'0.75rem', width:190, outline:'none', background:T.surface2, color:T.text, transition:'border 0.15s' }} />
               <button onClick={autoSuggest} style={btn('primary')}>⚡ Auto-Suggest</button>
             </div>
 
@@ -466,7 +508,7 @@ export default function DashboardClient({ user }: { user: User }) {
                     const role = roleOf(t); const added = inSet(t.id);
                     return (
                       <div key={t.id} style={{ marginBottom:2 }}>
-                        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 8px', borderRadius: analysingId === t.id ? '7px 7px 0 0' : 7, background:T.surface, border:`1px solid ${T.border}`, borderBottom: analysingId === t.id ? 'none' : `1px solid ${T.border}` }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 8px', borderRadius: analysingId === t.id ? '9px 9px 0 0' : 9, background:T.surface, border:`1px solid ${T.border}`, borderBottom: analysingId === t.id ? 'none' : `1px solid ${T.border}`, boxShadow: T.shadow, transition:'box-shadow 0.15s' }}>
                           <div style={{ width:8, height:8, borderRadius:'50%', background:role.color, flexShrink:0 }} title={role.label} />
                           {t.thumb
                             ? <img src={t.thumb} alt="" style={{ width:28, height:28, borderRadius:4, objectFit:'cover', flexShrink:0 }} />
@@ -552,7 +594,7 @@ export default function DashboardClient({ user }: { user: User }) {
                             {drift && <span style={{ fontSize:'0.65rem', color:drift.high?'#c0392b':T.muted }}>{drift.high?'⚡ ':''}{drift.sign}{drift.pct}%</span>}
                           </div>
                         )}
-                        <div style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 8px', borderRadius:7, marginBottom:2, background:T.surface, border:`1px solid ${T.border}` }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 8px', borderRadius:9, marginBottom:3, background:T.surface, border:`1px solid ${T.border}`, boxShadow:T.shadow }}>
                           <span style={{ fontSize:'0.65rem', color:T.muted, width:18, textAlign:'center', flexShrink:0 }}>{i+1}</span>
                           <div style={{ width:8, height:8, borderRadius:'50%', background:role.color, flexShrink:0 }} />
                           {t.thumb ? <img src={t.thumb} alt="" style={{ width:28, height:28, borderRadius:4, objectFit:'cover', flexShrink:0 }} /> : <div style={{ width:28, height:28, borderRadius:4, background:T.surface2, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.9rem', flexShrink:0 }}>{visualCue(t.releaseId)}</div>}
@@ -582,7 +624,7 @@ export default function DashboardClient({ user }: { user: User }) {
             {djSet.length === 0
               ? <div style={{ color:T.muted, fontSize:'0.8rem' }}>Build a set first to see analysis.</div>
               : <div style={{ display:'flex', flexDirection:'column', gap:'1rem', maxWidth:640 }}>
-                  <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, padding:'1rem' }}>
+                  <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:12, padding:'1.1rem', boxShadow:T.shadow }}>
                     <h3 style={{ fontSize:'0.75rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', color:T.muted, marginBottom:'0.75rem' }}>Role Breakdown</h3>
                     {ROLE_IDS.map(id => {
                       const count=djSet.filter(t=>assignRole(t)===id).length; if(!count) return null;
@@ -594,11 +636,11 @@ export default function DashboardClient({ user }: { user: User }) {
                       </div>;
                     })}
                   </div>
-                  <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, padding:'1rem' }}>
+                  <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:12, padding:'1.1rem', boxShadow:T.shadow }}>
                     <h3 style={{ fontSize:'0.75rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', color:T.muted, marginBottom:'0.75rem' }}>Flow Notes</h3>
                     {setSuggestions(djSet).map((s,i) => <div key={i} style={{ display:'flex', gap:6, marginBottom:5, fontSize:'0.75rem' }}><span>{s.type==='warning'?'⚠':'ℹ'}</span><span style={{ color:s.type==='warning'?'#c0392b':T.text }}>{s.message}</span></div>)}
                   </div>
-                  <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, padding:'1rem' }}>
+                  <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:12, padding:'1.1rem', boxShadow:T.shadow }}>
                     <h3 style={{ fontSize:'0.75rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', color:T.muted, marginBottom:'0.75rem' }}>Transitions</h3>
                     {djSet.slice(0,-1).map((t,i) => {
                       const next=djSet[i+1]; const compat=camCompat(t.key,next.key); const drift=pitchDrift(t.bpm,next.bpm); const bridge=bpmBridge(t.bpm,next.bpm);
@@ -646,7 +688,7 @@ export default function DashboardClient({ user }: { user: User }) {
                 const bpmVerified = t.bpmSource === 'enriched' || t.bpmSource === 'manual';
                 const keyVerified = t.keySource === 'enriched' || t.keySource === 'manual';
                 return (
-                  <div key={t.id} style={{ border:`2px solid ${role.color}`, borderRadius:6, padding:'6px 8px', background:'#fff', display:'flex', flexDirection:'column', gap:2, pageBreakInside:'avoid', minHeight:78 }}>
+                  <div key={t.id} style={{ border:`2px solid ${role.color}`, borderRadius:8, padding:'7px 9px', background: themeKey === 'dark' ? T.surface : '#fff', display:'flex', flexDirection:'column', gap:2, pageBreakInside:'avoid', minHeight:78, boxShadow:T.shadow }}>
                     <div style={{ height:3, borderRadius:2, background:role.color, marginBottom:2 }} />
                     <div style={{ fontSize:'0.55rem', color:'#999', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                       {t.releaseArtist}
