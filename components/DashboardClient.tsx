@@ -255,50 +255,21 @@ export default function DashboardClient({ user }: { user: User }) {
 
   // ── Full load (first time or forced refresh) ──────────────────────────
   async function loadCollection() {
-    setLoading(true); setError(''); setLoadMsg('Connecting to Discogs...');
-
-    async function fetchPage(url: string): Promise<Response> {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 15000);
-      try { return await fetch(url, { signal: ctrl.signal }); }
-      finally { clearTimeout(timer); }
-    }
-
+    setLoading(true); setError(''); setLoadMsg('Fetching your collection...');
     try {
-      const res1 = await fetchPage('/api/collection?page=1&per_page=100&sort=added&sort_order=desc');
-      if (!res1.ok) { if (res1.status === 401) { window.location.href = '/'; return; } throw new Error('HTTP ' + res1.status); }
-      const d1: CollectionPage = await res1.json();
-      const { pages } = d1.pagination;
-      let raw: RawRelease[] = [...d1.releases];
-
-      // Show page 1 immediately
-      setReleases(flattenRaw(raw));
-      setTab('library');
-      setLoading(false);
-
-      // Fetch remaining pages progressively
-      for (let p = 2; p <= pages; p++) {
-        setLoadMsg('Syncing ' + p + ' of ' + pages + '...');
-        try {
-          const r = await fetchPage('/api/collection?page=' + p + '&per_page=100&sort=added&sort_order=desc');
-          if (!r.ok) continue;
-          const d: CollectionPage = await r.json();
-          raw = [...raw, ...d.releases];
-          setReleases(flattenRaw(raw));
-          await new Promise(res => setTimeout(res, 200));
-        } catch {
-          await new Promise(res => setTimeout(res, 1500));
-          try {
-            const r2 = await fetchPage('/api/collection?page=' + p + '&per_page=100&sort=added&sort_order=desc');
-            if (r2.ok) { const d2: CollectionPage = await r2.json(); raw = [...raw, ...d2.releases]; setReleases(flattenRaw(raw)); }
-          } catch { /* skip */ }
-        }
+      // Single server-side call — server handles all Discogs pagination
+      const res = await fetch('/api/collection?mode=all&per_page=100&sort=added&sort_order=desc');
+      if (!res.ok) {
+        if (res.status === 401) { window.location.href = '/'; return; }
+        throw new Error('HTTP ' + res.status);
       }
-
+      const data: { releases: RawRelease[]; total: number } = await res.json();
       const now = Date.now();
-      await saveCollection(raw, now);
+      await saveCollection(data.releases, now);
       setSyncedAt(now);
       setNewCount(0);
+      setReleases(flattenRaw(data.releases));
+      setTab('library');
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
