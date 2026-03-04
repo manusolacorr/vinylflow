@@ -28,18 +28,30 @@ export function normKey(raw: string): string | null {
 }
 
 export function parseResponse(text: string): { bpm: number | null; key: string | null } | null {
-  const clean = text.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
-  try {
-    const p = JSON.parse(clean);
-    const bpm = typeof p.bpm === 'number' && p.bpm > 0 ? Math.round(p.bpm) : null;
-    const key = p.key ? normKey(String(p.key)) : null;
-    if (bpm || key) return { bpm, key };
-  } catch { /* fall through */ }
-  const bpmM = clean.match(/\b(\d{2,3})\s*(?:BPM|bpm)/);
+  // Strip all markdown fences and trim
+  const clean = text.replace(/```(?:json)?/g, '').trim();
+
+  // Try to find any JSON object in the response
+  const jsonMatches = clean.match(/\{[^{}]+\}/g) || [];
+  for (const jsonStr of jsonMatches) {
+    try {
+      const p = JSON.parse(jsonStr);
+      // Accept multiple possible field names
+      const bpmRaw = p.bpm ?? p.tempo ?? p.bpm_value ?? p.corrected_bpm;
+      const keyRaw = p.key ?? p.camelot_key ?? p.camelot ?? p.musical_key;
+      const bpm = typeof bpmRaw === 'number' && bpmRaw > 40 && bpmRaw < 220 ? Math.round(bpmRaw) : null;
+      const key = keyRaw ? normKey(String(keyRaw)) : null;
+      if (bpm || key) return { bpm, key };
+    } catch { continue; }
+  }
+
+  // Fallback: regex scan the whole text
+  const bpmM = clean.match(/\b(\d{2,3})\s*(?:BPM|bpm|Bpm)?(?:\s|$|,|"})/);
   const camM  = clean.match(/\b(\d{1,2}[ABab])\b/);
+  const keyM  = clean.match(/(?:key|Key)["\s]*[=:]["\s]*([A-Ga-g][#b]?\s*(?:major|minor|maj|min))/i);
   const bpm   = bpmM ? parseInt(bpmM[1]) : null;
-  const keyRaw = camM ? camM[1].toUpperCase() : null;
-  const key    = keyRaw && CAM_KEYS.includes(keyRaw) ? keyRaw : null;
+  const keyStr = camM ? camM[1].toUpperCase() : keyM ? normKey(keyM[1]) : null;
+  const key    = keyStr && CAM_KEYS.includes(keyStr) ? keyStr : null;
   return (bpm || key) ? { bpm, key } : null;
 }
 
@@ -61,20 +73,21 @@ export async function enrichTrack(
   if (!apiKey) return { bpm: null, key: null, source: 'no_api_key', confidence: 'low', correction: null };
 
   const genreHint = [...genres, ...styles].slice(0, 4).join(', ') || 'unknown';
-  const prompt = `You are a DJ music database with knowledge of Beatport, Tunebat, Juno Download and record pools.
-Return the BPM and Camelot key for this track from your training knowledge.
+  const prompt = `DJ metadata lookup. Respond with ONLY the JSON object below, no other text.
 
 Artist: ${artist}
 Title: ${title}
 Genre: ${genreHint}
 
-Rules:
-- BPM must be DJ-playable tempo, never half-time or double-time
-- Ranges: House 118-130, Deep House 118-126, Techno 128-145, Disco 108-128, Funk 85-115, Soul 70-110
-- If you don't know this exact track, give a genre-appropriate estimate
-- Convert key to Camelot notation (e.g. "11A", "8B")
+Camelot key map (use ONLY these values):
+C maj=8B  Db maj=3B  D maj=10B  Eb maj=5B  E maj=12B  F maj=7B
+Gb maj=2B  G maj=9B  Ab maj=4B  A maj=11B  Bb maj=6B  B maj=1B
+C min=5A  Db min=12A  D min=7A  Eb min=2A  E min=9A  F min=4A
+Gb min=11A  G min=6A  Ab min=1A  A min=8A  Bb min=3A  B min=10A
 
-Respond with ONLY this JSON, nothing else:
+BPM ranges: House 118-130, Deep House 118-126, Techno 128-145, Disco 108-128, Funk 85-115, Soul 70-110
+Never return half-time BPM. If unsure, estimate from genre.
+
 {"bpm": 120, "key": "8A"}`;
 
   try {
