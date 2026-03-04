@@ -63,45 +63,70 @@ function flattenRaw(rawReleases: RawRelease[]): Release[] {
 function allTracks(releases: Release[]): Track[] { return releases.flatMap(r => r.tracks); }
 
 const PAGE = 30;
+// ── Vercel-inspired design tokens ─────────────────────────────────────────
 const THEMES = {
   light: {
-    bg: '#f0ede6',
-    surface: '#faf9f7',
-    surface2: '#f0ede6',
-    surface3: '#e6e2d9',
-    border: '#d9d4c9',
-    text: '#0f0e0a',
-    muted: '#7a7568',
-    accent: '#b07d2a',
-    accentFg: '#ffffff',
-    accentGlow: 'rgba(176,125,42,0.15)',
-    accent2: '#4a43a0',
-    green: '#1e6e3e',
-    red: '#a82828',
-    shadow: '0 1px 2px rgba(0,0,0,0.06), 0 3px 10px rgba(0,0,0,0.04)',
-    shadowMd: '0 4px 16px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.05)',
-    shadowLg: '0 8px 32px rgba(0,0,0,0.12)',
+    bg:        '#ffffff',
+    surface:   '#ffffff',
+    surface2:  '#fafafa',
+    surface3:  '#f2f2f2',
+    border:    '#eaeaea',
+    borderHover: '#999',
+    text:      '#000000',
+    muted:     '#666666',
+    subtle:    '#999999',
+    accent:    '#b07d2a',     // keep amber — only for DJ role/BPM purpose
+    accentFg:  '#ffffff',
+    accentGlow:'rgba(176,125,42,0.10)',
+    accent2:   '#4a43a0',
+    green:     '#0a7c3e',
+    red:       '#e00',
+    shadow:    '0 0 0 1px rgba(0,0,0,0.06)',
+    shadowMd:  '0 4px 16px rgba(0,0,0,0.08)',
+    shadowLg:  '0 8px 32px rgba(0,0,0,0.10)',
   },
   dark: {
-    bg: '#09090b',
-    surface: '#111113',
-    surface2: '#18181b',
-    surface3: '#1e1e22',
-    border: '#27272a',
-    text: '#fafafa',
-    muted: '#71717a',
-    accent: '#d4a032',
-    accentFg: '#000000',
-    accentGlow: 'rgba(212,160,50,0.12)',
-    accent2: '#8b80e8',
-    green: '#4ade80',
-    red: '#f87171',
-    shadow: '0 1px 2px rgba(0,0,0,0.6), 0 3px 10px rgba(0,0,0,0.4)',
-    shadowMd: '0 4px 16px rgba(0,0,0,0.7), 0 1px 3px rgba(0,0,0,0.5)',
-    shadowLg: '0 8px 32px rgba(0,0,0,0.8)',
+    bg:        '#0a0a0a',
+    surface:   '#111111',
+    surface2:  '#1a1a1a',
+    surface3:  '#222222',
+    border:    '#333333',
+    borderHover: '#666',
+    text:      '#ededed',
+    muted:     '#888888',
+    subtle:    '#555555',
+    accent:    '#d4a032',
+    accentFg:  '#000000',
+    accentGlow:'rgba(212,160,50,0.10)',
+    accent2:   '#8b80e8',
+    green:     '#50e3a4',
+    red:       '#ff4444',
+    shadow:    '0 0 0 1px rgba(255,255,255,0.04)',
+    shadowMd:  '0 4px 16px rgba(0,0,0,0.6)',
+    shadowLg:  '0 8px 32px rgba(0,0,0,0.8)',
   },
 };
 type ThemeKey = keyof typeof THEMES;
+
+// ── Minimal SVG icons (Lucide-style, 16×16 stroke) ────────────────────────
+const Icon = {
+  music:    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>,
+  edit:     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg>,
+  download: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
+  sun:      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>,
+  moon:     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>,
+  label:    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>,
+  save:     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>,
+  mic:      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>,
+  file:     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>,
+  print:    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>,
+  filter:   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>,
+  bolt:     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,
+  chevronL: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>,
+  chevronR: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>,
+  x:        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+  logout:   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
+};
 
 export default function DashboardClient({ user }: { user: User }) {
   // ── Theme ──────────────────────────────────────────────────────────────
@@ -115,8 +140,8 @@ export default function DashboardClient({ user }: { user: User }) {
     return next;
   });
   const T = THEMES[themeKey];
-  const chip = (active: boolean, color: string): React.CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', border: `1px solid ${active ? color : T.border}`, background: active ? color : T.surface, color: active ? '#fff' : T.text, whiteSpace: 'nowrap', transition: 'all 0.15s' });
-  const btn = (v: 'primary' | 'secondary' | 'ghost' = 'secondary'): React.CSSProperties => ({ padding: '5px 14px', borderRadius: 8, fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', letterSpacing: '0.01em', border: v === 'ghost' ? 'none' : v === 'primary' ? 'none' : `1px solid ${T.border}`, background: v === 'primary' ? T.accent : v === 'ghost' ? 'transparent' : T.surface2, color: v === 'primary' ? T.accentFg : T.text, transition: 'opacity 0.15s, transform 0.1s', boxShadow: v === 'primary' ? `0 0 0 1px ${T.accent}, ${T.shadow}` : 'none' });
+  const chip = (active: boolean, color: string): React.CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '0 10px', height: 28, borderRadius: 6, fontSize: '0.7rem', fontWeight: 500, cursor: 'pointer', border: `1px solid ${active ? color : T.border}`, background: active ? color : 'transparent', color: active ? '#fff' : T.muted, whiteSpace: 'nowrap', transition: 'all 0.15s', letterSpacing: '-0.01em' });
+  const btn = (v: 'primary' | 'secondary' | 'ghost' = 'secondary'): React.CSSProperties => ({ display:'inline-flex', alignItems:'center', gap:5, padding: '0 12px', height:32, borderRadius: 6, fontSize: '0.72rem', fontWeight: 500, cursor: 'pointer', letterSpacing: '-0.01em', border: v === 'ghost' ? 'none' : `1px solid ${v === 'primary' ? 'transparent' : T.border}`, background: v === 'primary' ? T.accent : v === 'ghost' ? 'transparent' : T.surface, color: v === 'primary' ? T.accentFg : T.text, transition: 'background 0.15s, border-color 0.15s, color 0.15s' });
 
   const [releases, setReleases] = useState<Release[]>([]);
   const [loading, setLoading] = useState(false);
@@ -410,43 +435,47 @@ export default function DashboardClient({ user }: { user: User }) {
   const totalTrackCount = allTracks(releases).length;
 
   return (
-    <div style={{ height:'100vh', display:'flex', flexDirection:'column', background:T.bg, fontFamily:"'Inter', system-ui, -apple-system, sans-serif", transition:'background 0.2s, color 0.2s' }}>
+    <div style={{ height:'100vh', display:'flex', flexDirection:'column', background:T.bg, fontFamily:"'Geist', 'GeistSans', system-ui, -apple-system, sans-serif", transition:'background 0.2s, color 0.2s' }}>
       {/* Global styles */}
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&display=swap');
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        body { color: ${T.text}; }
-        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        body { color: ${T.text}; background: ${T.bg}; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: ${T.muted}; }
-        input, button, select { font-family: inherit; }
+        input, button, select, textarea { font-family: inherit; }
         a { text-decoration: none; color: inherit; }
+        button { cursor: pointer; }
         button:focus-visible { outline: 2px solid ${T.accent}; outline-offset: 2px; }
+        ::selection { background: ${T.accent}22; }
       `}</style>
 
       {/* Header */}
       <header style={{ background:T.surface, borderBottom:`1px solid ${T.border}`, height:54, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 1.5rem', flexShrink:0, boxShadow:T.shadow }}>
-        <div style={{ display:'flex', alignItems:'center', gap:14 }}>
-          <span style={{ fontSize:'1rem', fontWeight:700, color:T.accent, letterSpacing:'-0.03em', fontVariantNumeric:'tabular-nums' }}>vinyl<span style={{color:T.muted, fontWeight:300}}>.</span>flow</span>
-          {releases.length > 0 && (['library','set','analysis','stickers'] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)} style={{ ...btn(tab===t?'primary':'ghost'), padding:'4px 12px', fontSize:'0.7rem', borderRadius: 8, letterSpacing: '-0.01em' }}>
-              {t==='library'?`Library (${filteredTracks.length})`:t==='set'?`Set (${djSet.length})`:t==='analysis'?'Analysis':'\uD83C\uDFF7 Stickers'}
+        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+          <span style={{ fontSize:'0.95rem', fontWeight:600, color:T.text, letterSpacing:'-0.04em' }}>vinyl<span style={{color:T.muted}}>.flow</span></span>
+          {releases.length > 0 && <span style={{ width:1, height:16, background:T.border, margin:'0 6px', flexShrink:0 }} />}
+          {(['library','set','analysis','stickers'] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)} style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'0 10px', height:28, borderRadius:6, fontSize:'0.72rem', fontWeight:500, cursor:'pointer', border:'none', letterSpacing:'-0.01em', background: tab===t ? T.surface3 : 'transparent', color: tab===t ? T.text : T.muted, transition:'all 0.15s' }}>
+              {t==='library'?`Library (${filteredTracks.length})`:t==='set'?`Set (${djSet.length})`:t==='analysis'?'Analysis':<span style={{ display:'inline-flex', alignItems:'center', gap:5 }}>{Icon.label} Stickers</span>}
             </button>
           ))}
         </div>
-        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
           {savedCount > 0 && (
-            <span title="BPM/key data saved locally — survives page refresh" style={{ fontSize:'0.65rem', color: T.green, display:'flex', alignItems:'center', gap:3 }}>
-              💾 {savedCount} saved
+            <span title="BPM/key data saved locally — survives page refresh" style={{ fontSize:'0.65rem', color: T.green, display:'inline-flex', alignItems:'center', gap:4, fontWeight:500 }}>
+              {Icon.save} {savedCount} saved
             </span>
           )}
           {releases.length > 0 && (
-            <button onClick={exportToExcel} style={{ ...btn(), fontSize:'0.7rem' }} title="Export collection and set to Excel">⬇ Export</button>
+            <button onClick={exportToExcel} style={{ ...btn(), fontSize:'0.7rem' }} title="Export collection and set to Excel" style={{display:'inline-flex',alignItems:'center',gap:5}}>{Icon.download} Export</button>
           )}
           {releases.length > 0 && !enriching && (
             <button onClick={expandTracklists} style={{ ...btn(), fontSize:'0.7rem', color: enrichedCount > 0 ? T.muted : T.text }}>
-              {enrichedCount > 0 ? `✓ ${enrichedCount}/${totalTrackCount} enriched` : '⚡ Enrich BPM/Key'}
+              {enrichedCount > 0 ? <>{Icon.save} {enrichedCount}/{totalTrackCount} enriched</> : <>{Icon.bolt} Enrich BPM/Key</>}
             </button>
           )}
           {enriching && (
@@ -457,12 +486,12 @@ export default function DashboardClient({ user }: { user: User }) {
               {enrichProgress}%
             </div>
           )}
-          {user.avatar_url && <img src={user.avatar_url} alt="" style={{ width:24, height:24, borderRadius:'50%' }} />}
-          <span style={{ fontSize:'0.72rem', fontWeight:500, color:T.text, letterSpacing:'0.01em' }}>{user.username}</span>
-          <button onClick={toggleTheme} title={themeKey === 'light' ? 'Dark mode' : 'Light mode'} style={{ background:T.surface2, border:`1px solid ${T.border}`, borderRadius:8, cursor:'pointer', padding:'4px 10px', color:T.muted, fontSize:'0.8rem', lineHeight:1.2, transition:'all 0.15s', fontWeight:500 }}>
-            {themeKey === 'light' ? '🌙' : '☀️'}
+          {user.avatar_url && <img src={user.avatar_url} alt="" style={{ width:22, height:22, borderRadius:'50%', border:`1px solid ${T.border}` }} />}
+          <span style={{ fontSize:'0.72rem', fontWeight:500, color:T.muted, letterSpacing:'-0.01em' }}>{user.username}</span>
+          <button onClick={toggleTheme} title={themeKey === 'light' ? 'Dark mode' : 'Light mode'} style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:32, height:32, background:'transparent', border:`1px solid ${T.border}`, borderRadius:6, cursor:'pointer', color:T.muted, transition:'all 0.15s' }}>
+            {themeKey === 'light' ? Icon.moon : Icon.sun}
           </button>
-          <a href="/api/auth/logout" style={{ fontSize:'0.7rem', color:T.muted, fontWeight:500 }}>Log out</a>
+          <a href="/api/auth/logout" style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:'0.72rem', color:T.muted, fontWeight:500, letterSpacing:'-0.01em', padding:'0 4px' }}>{Icon.logout} Log out</a>
         </div>
       </header>
 
@@ -491,18 +520,18 @@ export default function DashboardClient({ user }: { user: User }) {
         {/* Library */}
         {!loading && releases.length > 0 && tab === 'library' && (
           <div style={{ flex:1, overflow:'hidden', display:'flex', flexDirection:'column' }}>
-            <div style={{ background:T.surface, borderBottom:`1px solid ${T.border}`, padding:'0.6rem 1.5rem', display:'flex', alignItems:'center', gap:8, flexShrink:0, flexWrap:'wrap' }}>
-              <button onClick={() => setFilterOpen(o => !o)} style={{ ...btn('ghost'), fontSize:'0.7rem', color:T.muted, padding:'2px 6px' }}>{filterOpen?'▲':'▼'} FILTERS</button>
+            <div style={{ background:T.surface, borderBottom:`1px solid ${T.border}`, padding:'0 1.5rem', height:44, display:'flex', alignItems:'center', gap:8, flexShrink:0, flexWrap:'nowrap', overflowX:'auto' }}>
+              <button onClick={() => setFilterOpen(o => !o)} style={{ ...btn('ghost'), fontSize:'0.7rem', color:T.muted, padding:'2px 6px' }}style={{ display:'inline-flex', alignItems:'center', gap:5, color:T.muted }}>{Icon.filter} Filters</button>
               <div style={{ display:'flex', gap:4, flexWrap:'wrap', flex:1 }}>
                 {activePills.slice(0,5).map((p,i) => <span key={i} style={{ ...chip(true,p.color), fontSize:'0.65rem', padding:'2px 7px' }}>{p.label}</span>)}
                 {activePills.length===0 && <span style={{ fontSize:'0.65rem', color:T.muted, fontStyle:'italic' }}>no filters</span>}
               </div>
               <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="Search tracks..." style={{ padding:'5px 12px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:'0.75rem', width:190, outline:'none', background:T.surface2, color:T.text, transition:'border 0.15s' }} />
-              <button onClick={autoSuggest} style={btn('primary')}>⚡ Auto-Suggest</button>
+              <button onClick={autoSuggest} style={btn('primary')} style={{display:'inline-flex',alignItems:'center',gap:5}}>{Icon.bolt} Auto-Suggest</button>
             </div>
 
             {filterOpen && (
-              <div style={{ background:T.surface2, borderBottom:`1px solid ${T.border}`, padding:'0.6rem 1rem', display:'flex', gap:'1rem', flexWrap:'wrap', flexShrink:0 }}>
+              <div style={{ background:T.surface2, borderBottom:`1px solid ${T.border}`, padding:'0.5rem 1.5rem', display:'flex', gap:'1rem', flexWrap:'wrap', flexShrink:0 }}>
                 <div style={{ display:'flex', gap:4, alignItems:'center', flexWrap:'wrap' }}>
                   <span style={{ fontSize:'0.6rem', color:T.muted, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em' }}>Role</span>
                   <button onClick={() => setRoleFilters(new Set())} style={chip(roleFilters.size===0, T.accent)}>All</button>
@@ -542,11 +571,11 @@ export default function DashboardClient({ user }: { user: User }) {
                             <div style={{ fontSize:'0.63rem', color:T.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:1 }}>{t.trackArtist || t.releaseArtist} · <span style={{ fontFamily:"'JetBrains Mono', monospace", fontSize:'0.6rem' }}>{t.pos}</span>{t.year ? ` · ${t.year}` : ''}</div>
                           </div>
                           <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
-                            {t.key && <span style={{ fontSize:'0.68rem', fontWeight:700, color: t.keySource==='enriched'||t.keySource==='manual' ? T.accent : T.muted, fontFamily:"'JetBrains Mono', monospace", background:T.accentGlow, padding:'1px 5px', borderRadius:4 }}>{t.key}</span>}
-                            {t.bpm && <span style={{ fontSize:'0.72rem', fontWeight:600, color: t.bpmSource==='enriched'||t.bpmSource==='manual' ? T.text : T.muted, fontFamily:"'JetBrains Mono', monospace", minWidth:28, textAlign:'right' }}>{t.bpm}</span>}
-                            <button onClick={() => setAnalysingId(analysingId === t.id ? null : t.id)} title="Analyse audio" style={{ ...btn('ghost'), padding:'3px 7px', fontSize:'0.72rem', color: t.bpmSource==='enriched' ? T.green : T.muted }}>🎵</button>
-                            <button onClick={() => editingId === t.id ? setEditingId(null) : openEdit(t)} title="Edit manually" style={{ ...btn('ghost'), padding:'3px 7px', fontSize:'0.68rem', color: t.bpmSource==='manual'||t.keySource==='manual' ? T.accent : T.muted }}>✏</button>
-                            <button onClick={() => added?removeFromSet(t.id):addToSet(t)} style={{ padding:'4px 10px', borderRadius:7, fontSize:'0.7rem', fontWeight:700, cursor:'pointer', border:'none', background:added?T.surface3:T.accent, color:added?T.muted:T.accentFg, transition:'all 0.15s', letterSpacing:'0.02em' }}>{added?'✓':'+'}</button>
+                            {t.key && <span style={{ fontSize:'0.68rem', fontWeight:700, color: t.keySource==='enriched'||t.keySource==='manual' ? T.accent : T.muted, fontFamily:"'Geist Mono', 'GeistMono', monospace", background:T.accentGlow, padding:'2px 6px', borderRadius:4, letterSpacing:'0.02em' }}>{t.key}</span>}
+                            {t.bpm && <span style={{ fontSize:'0.72rem', fontWeight:600, color: t.bpmSource==='enriched'||t.bpmSource==='manual' ? T.text : T.muted, fontFamily:"'Geist Mono', 'GeistMono', monospace", minWidth:28, textAlign:'right', letterSpacing:'0.02em' }}>{t.bpm}</span>}
+                            <button onClick={() => setAnalysingId(analysingId === t.id ? null : t.id)} title="Analyse audio" style={{ ...btn('ghost'), padding:'0 6px', height:28, color: t.bpmSource==='enriched' ? T.green : T.muted }}>{Icon.music}</button>
+                            <button onClick={() => editingId === t.id ? setEditingId(null) : openEdit(t)} title="Edit manually" style={{ ...btn('ghost'), padding:'0 6px', height:28, color: t.bpmSource==='manual'||t.keySource==='manual' ? T.accent : T.muted }}>{Icon.edit}</button>
+                            <button onClick={() => added?removeFromSet(t.id):addToSet(t)} style={{ padding:'4px 10px', borderRadius:7, fontSize:'0.7rem', fontWeight:700, cursor:'pointer', border:'none', background:added?T.surface3:T.accent, color:added?T.muted:T.accentFg, transition:'all 0.15s', letterSpacing:'0.02em' }}>{added ? Icon.save : '+'}</button>
                           </div>
                         </div>
                         {analysingId === t.id && (
@@ -583,9 +612,9 @@ export default function DashboardClient({ user }: { user: User }) {
 
             {totalPages > 1 && (
               <div style={{ borderTop:`1px solid ${T.border}`, padding:'0.5rem 1rem', display:'flex', alignItems:'center', justifyContent:'center', gap:8, flexShrink:0 }}>
-                <button onClick={() => setPage(p => Math.max(1,p-1))} disabled={page===1} style={btn()}>←</button>
+                <button onClick={() => setPage(p => Math.max(1,p-1))} disabled={page===1} style={btn()}>{Icon.chevronL}</button>
                 <span style={{ fontSize:'0.75rem', color:T.muted }}>{page} / {totalPages}</span>
-                <button onClick={() => setPage(p => Math.min(totalPages,p+1))} disabled={page===totalPages} style={btn()}>→</button>
+                <button onClick={() => setPage(p => Math.min(totalPages,p+1))} disabled={page===totalPages} style={btn()}>{Icon.chevronR}</button>
               </div>
             )}
           </div>
@@ -601,7 +630,7 @@ export default function DashboardClient({ user }: { user: User }) {
             </div>
             {djSet.length === 0
               ? <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', color:T.muted, fontSize:'0.8rem', flexDirection:'column', gap:8 }}>
-                  <div style={{ fontSize:'1.5rem' }}>🎶</div>No tracks yet — go to Library and add some, or click ⚡ Auto-Suggest
+                  <div style={{ color:T.muted, marginBottom:8 }}>{Icon.music}</div>No tracks yet — go to Library and add some
                 </div>
               : <div style={{ flex:1, overflowY:'auto', padding:'0.5rem 1rem' }}>
                   {djSet.map((t,i) => {
@@ -670,7 +699,7 @@ export default function DashboardClient({ user }: { user: User }) {
                     {djSet.slice(0,-1).map((t,i) => {
                       const next=djSet[i+1]; const compat=camCompat(t.key,next.key); const drift=pitchDrift(t.bpm,next.bpm); const bridge=bpmBridge(t.bpm,next.bpm);
                       return <div key={i} style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4, fontSize:'0.7rem' }}>
-                        <span style={{ color:T.muted, width:20 }}>{i+1}→</span>
+                        <span style={{ color:T.subtle, fontSize:'0.65rem', width:20, fontVariantNumeric:'tabular-nums' }}>{i+1}</span>
                         <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.title}</span>
                         {compat && <span style={{ fontWeight:700, color:compatColor(compat), flexShrink:0 }}>{compat}</span>}
                         {bridge && <span style={{ color:bridge.ok?T.green:'#c0392b', flexShrink:0 }}>{bridge.l}</span>}
@@ -686,13 +715,13 @@ export default function DashboardClient({ user }: { user: User }) {
         {!loading && releases.length > 0 && tab === 'stickers' && (
           <div style={{ flex:1, overflowY:'auto', display:'flex', flexDirection:'column' }}>
 
-            <div className="no-print" style={{ background:T.surface, borderBottom:`1px solid ${T.border}`, padding:'0.5rem 1rem', display:'flex', alignItems:'center', gap:10, flexShrink:0, flexWrap:'wrap' }}>
+            <div className="no-print" style={{ background:T.surface, borderBottom:`1px solid ${T.border}`, padding:'0 1.5rem', height:48, display:'flex', alignItems:'center', gap:10, flexShrink:0, flexWrap:'wrap' }}>
               <span style={{ fontSize:'0.7rem', fontWeight:700, color:T.muted, textTransform:'uppercase', letterSpacing:'0.07em' }}>Source</span>
               <button onClick={() => setStickerSource('collection')} style={chip(stickerSource==='collection', T.accent)}>Full Collection ({releases.length})</button>
               <button onClick={() => setStickerSource('set')} style={chip(stickerSource==='set', T.accent)}>Current Set ({djSet.length})</button>
               <div style={{ flex:1 }} />
               <span style={{ fontSize:'0.65rem', color:T.muted }}>Avery L7651 / 65-up</span>
-              <button onClick={() => window.print()} style={{ ...btn('primary'), padding:'5px 14px' }}>Print</button>
+              <button onClick={() => window.print()} style={{ ...btn('primary'), padding:'5px 14px' }} style={{display:'inline-flex',alignItems:'center',gap:6}}>{Icon.print} Print</button>
             </div>
 
             <div className="no-print" style={{ background:T.surface2, borderBottom:`1px solid ${T.border}`, padding:'0.4rem 1rem', display:'flex', gap:12, flexWrap:'wrap', flexShrink:0 }}>
