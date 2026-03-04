@@ -22,10 +22,11 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url);
-  const page     = searchParams.get('page')     || '1';
-  const perPage  = searchParams.get('per_page') || '100';
-  const sort     = searchParams.get('sort')     || 'added';
+  const page      = searchParams.get('page')       || '1';
+  const perPage   = searchParams.get('per_page')   || '100';
+  const sort      = searchParams.get('sort')       || 'added';
   const sortOrder = searchParams.get('sort_order') || 'desc';
+  // date_added is included in the Discogs response automatically when sort=added
 
   try {
     const data = await discogsGet(
