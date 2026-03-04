@@ -119,13 +119,10 @@ export async function discogsGet<T = unknown>(
   const auth = buildAuthHeader('GET', url, { oauth_token: accessToken },
     process.env.DISCOGS_CONSUMER_SECRET!, accessTokenSecret);
 
-  const ctrl  = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 12000);
-
   const res = await fetch(url, {
-    signal: ctrl.signal,
     headers: { Authorization: auth, 'User-Agent': USER_AGENT, Accept: 'application/json' },
-  }).finally(() => clearTimeout(timer));
+    next: { revalidate: 60 },
+  });
 
   if (res.status === 429) {
     await new Promise(r => setTimeout(r, 2000));
