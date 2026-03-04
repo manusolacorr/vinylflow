@@ -1,27 +1,33 @@
 import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 10;
+export const maxDuration = 15;
 
 export async function GET() {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return NextResponse.json({ error: 'no ANTHROPIC_API_KEY' });
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return NextResponse.json({ error: 'no key' });
+
+  const prompt = `You are an expert DJ and music analyst with deep knowledge of electronic music, soul, funk, disco and jazz records.
+
+Identify the musical key of this specific track: "Frits Wentink - Horses In Cornfield"
+Genre: Electronic, Deep House
+BPM is 123.
+
+Respond ONLY with: {"key": "11A"}`;
 
   try {
-    const start = Date.now();
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 60,
-        messages: [{ role: 'user', content: 'Return only this JSON: {"bpm":120,"key":"8A"}' }],
+        model: 'claude-sonnet-4-5-20251022',
+        max_tokens: 50,
+        messages: [{ role: 'user', content: prompt }],
       }),
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(12000),
     });
     const data = await res.json();
-    const ms = Date.now() - start;
-    if (!res.ok) return NextResponse.json({ ok: false, status: res.status, error: data });
-    return NextResponse.json({ ok: true, ms, response: data?.content?.[0]?.text, keyPrefix: key.slice(0,8) + '...' });
+    const raw = data?.content?.[0]?.text ?? '';
+    return NextResponse.json({ ok: res.ok, status: res.status, raw, model: 'claude-sonnet-4-5-20251022' });
   } catch (e: unknown) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : String(e) });
   }
