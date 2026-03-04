@@ -277,6 +277,73 @@ export default function DashboardClient({ user }: { user: User }) {
     setSavedCount(n => n + 1);
   }
 
+
+  function exportToExcel() {
+    // Dynamically load SheetJS
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    script.onload = () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const XLSX = (window as any).XLSX;
+
+      const roleLabel = (t: Track) => roleOf(t).label;
+      const source = (s: string | null) => s === 'enriched' ? 'auto' : s === 'manual' ? 'manual' : s === 'guessed' ? 'estimated' : '';
+
+      // Sheet 1 — Full collection (one row per track)
+      const collectionRows = allTracks(releases).map(t => ({
+        Artist:      t.trackArtist || t.releaseArtist,
+        Release:     t.releaseTitle,
+        Track:       t.title,
+        Position:    t.pos,
+        Year:        t.year || '',
+        Genre:       (t.genres || []).join(', '),
+        Style:       (t.styles || []).join(', '),
+        Role:        roleLabel(t),
+        BPM:         t.bpm ?? '',
+        'BPM Source': source(t.bpmSource),
+        Key:         t.key ?? '',
+        'Key Source': source(t.keySource),
+        Duration:    t.duration || '',
+      }));
+
+      // Sheet 2 — DJ Set (ordered, with transition info)
+      const setRows = djSet.map((t, i) => {
+        const prev = djSet[i - 1];
+        const compat = prev ? camCompat(prev.key, t.key) : null;
+        const drift  = prev ? pitchDrift(prev.bpm, t.bpm) : null;
+        return {
+          '#':          i + 1,
+          Artist:       t.trackArtist || t.releaseArtist,
+          Release:      t.releaseTitle,
+          Track:        t.title,
+          Position:     t.pos,
+          Role:         roleLabel(t),
+          BPM:          t.bpm ?? '',
+          Key:          t.key ?? '',
+          'Compatibility': compat ?? '',
+          'Pitch Drift':   drift ? `${drift.sign}${drift.pct}%` : '',
+        };
+      });
+
+      const wb = XLSX.utils.book_new();
+
+      // Style header rows bold
+      const makeSheet = (rows: object[]) => {
+        const ws = XLSX.utils.json_to_sheet(rows);
+        // Set column widths
+        ws['!cols'] = Object.keys(rows[0] || {}).map(k => ({ wch: Math.max(k.length + 2, 14) }));
+        return ws;
+      };
+
+      if (collectionRows.length > 0) XLSX.utils.book_append_sheet(wb, makeSheet(collectionRows), 'Collection');
+      if (setRows.length > 0)        XLSX.utils.book_append_sheet(wb, makeSheet(setRows), 'DJ Set');
+
+      const date = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(wb, `vinylflow-${date}.xlsx`);
+    };
+    document.head.appendChild(script);
+  }
+
   function autoSuggest() { const pool=filteredTracks.length>0?filteredTracks:allTracks(releases); setDjSet(engine1BuildSet(pool,20)); setTab('set'); }
   function smartSort() { if (djSet.length>1) setDjSet(engine2SortSet(djSet)); }
   function toggleFilter<F>(setter: React.Dispatch<React.SetStateAction<Set<F>>>, val: F) {
@@ -310,6 +377,9 @@ export default function DashboardClient({ user }: { user: User }) {
             <span title="BPM/key data saved locally — survives page refresh" style={{ fontSize:'0.65rem', color: T.green, display:'flex', alignItems:'center', gap:3 }}>
               💾 {savedCount} saved
             </span>
+          )}
+          {releases.length > 0 && (
+            <button onClick={exportToExcel} style={{ ...btn(), fontSize:'0.7rem' }} title="Export collection and set to Excel">⬇ Export</button>
           )}
           {releases.length > 0 && !enriching && (
             <button onClick={expandTracklists} style={{ ...btn(), fontSize:'0.7rem', color: enrichedCount > 0 ? T.muted : T.text }}>
