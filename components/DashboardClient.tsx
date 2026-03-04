@@ -63,47 +63,58 @@ function flattenRaw(rawReleases: RawRelease[]): Release[] {
 function allTracks(releases: Release[]): Track[] { return releases.flatMap(r => r.tracks); }
 
 const PAGE = 30;
-// ── Vercel-inspired design tokens ─────────────────────────────────────────
+// ── Exact Vercel/Geist design tokens ──────────────────────────────────────
+// Light: white base, #eaeaea borders, #666 muted, #0070f3 blue accent
+// Dark:  #1a1a1a base (soft grey, not black), #333 borders, #888 muted
 const THEMES = {
   light: {
-    bg:        '#ffffff',
-    surface:   '#ffffff',
-    surface2:  '#fafafa',
-    surface3:  '#f2f2f2',
-    border:    '#eaeaea',
-    borderHover: '#999',
-    text:      '#000000',
-    muted:     '#666666',
-    subtle:    '#999999',
-    accent:    '#b07d2a',     // keep amber — only for DJ role/BPM purpose
-    accentFg:  '#ffffff',
-    accentGlow:'rgba(176,125,42,0.10)',
-    accent2:   '#4a43a0',
-    green:     '#0a7c3e',
-    red:       '#e00',
-    shadow:    '0 0 0 1px rgba(0,0,0,0.06)',
-    shadowMd:  '0 4px 16px rgba(0,0,0,0.08)',
-    shadowLg:  '0 8px 32px rgba(0,0,0,0.10)',
+    bg:         '#ffffff',
+    surface:    '#ffffff',
+    surface2:   '#fafafa',
+    surface3:   '#f2f2f2',
+    border:     '#eaeaea',
+    borderHover:'#999999',
+    text:       '#000000',
+    muted:      '#666666',
+    subtle:     '#999999',
+    // Vercel blue for all UI chrome: buttons, active states, links
+    accent:     '#0070f3',
+    accentHover:'#0060df',
+    accentFg:   '#ffffff',
+    accentGlow: 'rgba(0,112,243,0.08)',
+    // DJ-purpose only: role colors stay in ROLES, BPM/key use these
+    djAmber:    '#f5a623',
+    djAmberFg:  '#000000',
+    green:      '#0070f3',   // vercel uses blue for success too
+    greenAlt:   '#29bc9b',   // teal for confirmed data
+    red:        '#ee0000',
+    warning:    '#f5a623',
+    shadow:     '0 0 0 1px rgba(0,0,0,0.06), 0 2px 4px rgba(0,0,0,0.04)',
+    shadowMd:   '0 4px 16px rgba(0,0,0,0.10)',
   },
   dark: {
-    bg:        '#0a0a0a',
-    surface:   '#111111',
-    surface2:  '#1a1a1a',
-    surface3:  '#222222',
-    border:    '#333333',
-    borderHover: '#666',
-    text:      '#ededed',
-    muted:     '#888888',
-    subtle:    '#555555',
-    accent:    '#d4a032',
-    accentFg:  '#000000',
-    accentGlow:'rgba(212,160,50,0.10)',
-    accent2:   '#8b80e8',
-    green:     '#50e3a4',
-    red:       '#ff4444',
-    shadow:    '0 0 0 1px rgba(255,255,255,0.04)',
-    shadowMd:  '0 4px 16px rgba(0,0,0,0.6)',
-    shadowLg:  '0 8px 32px rgba(0,0,0,0.8)',
+    // Soft grey — Vercel dashboard dark, NOT pure black
+    bg:         '#1a1a1a',
+    surface:    '#1a1a1a',
+    surface2:   '#242424',
+    surface3:   '#2e2e2e',
+    border:     '#333333',
+    borderHover:'#666666',
+    text:       '#ededed',
+    muted:      '#888888',
+    subtle:     '#444444',
+    accent:     '#0070f3',
+    accentHover:'#3291ff',
+    accentFg:   '#ffffff',
+    accentGlow: 'rgba(0,112,243,0.12)',
+    djAmber:    '#f5a623',
+    djAmberFg:  '#000000',
+    green:      '#3291ff',
+    greenAlt:   '#29bc9b',
+    red:        '#ff4444',
+    warning:    '#f5a623',
+    shadow:     '0 0 0 1px rgba(255,255,255,0.06)',
+    shadowMd:   '0 4px 16px rgba(0,0,0,0.5)',
   },
 };
 type ThemeKey = keyof typeof THEMES;
@@ -435,11 +446,9 @@ export default function DashboardClient({ user }: { user: User }) {
   const totalTrackCount = allTracks(releases).length;
 
   return (
-    <div style={{ height:'100vh', display:'flex', flexDirection:'column', background:T.bg, fontFamily:"'Geist', 'GeistSans', system-ui, -apple-system, sans-serif", transition:'background 0.2s, color 0.2s' }}>
+    <div style={{ height:'100vh', display:'flex', flexDirection:'column', background:T.bg, fontFamily:"var(--font-geist-sans), system-ui, sans-serif", transition:'background 0.2s, color 0.2s' }}>
       {/* Global styles */}
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&display=swap');
-        @import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&display=swap');
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         body { color: ${T.text}; background: ${T.bg}; }
         ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -466,7 +475,7 @@ export default function DashboardClient({ user }: { user: User }) {
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:6 }}>
           {savedCount > 0 && (
-            <span title="BPM/key data saved locally — survives page refresh" style={{ fontSize:'0.65rem', color: T.green, display:'inline-flex', alignItems:'center', gap:4, fontWeight:500 }}>
+            <span title="BPM/key data saved locally — survives page refresh" style={{ fontSize:'0.65rem', color: T.greenAlt, display:'inline-flex', alignItems:'center', gap:4, fontWeight:500 }}>
               {Icon.save} {savedCount} saved
             </span>
           )}
@@ -497,7 +506,7 @@ export default function DashboardClient({ user }: { user: User }) {
 
       <main style={{ flex:1, overflow:'hidden', display:'flex', flexDirection:'column' }}>
         {error && <div style={{ background:'#fff5f5', borderBottom:`1px solid #c0392b`, padding:'0.5rem 1rem', fontSize:'0.75rem', color:'#c0392b' }}>⚠ {error}</div>}
-        {enrichMsg && <div style={{ background:'#fffbf0', borderBottom:`1px solid ${T.accent}`, padding:'0.4rem 1rem', fontSize:'0.7rem', color:T.accent }}>{enrichMsg}</div>}
+        {enrichMsg && <div style={{ background:T.surface2, borderBottom:`1px solid ${T.border}`, padding:'0.4rem 1rem', fontSize:'0.7rem', color:T.muted }}>{enrichMsg}</div>}
 
         {!loading && releases.length === 0 && (
           <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center' }}>
@@ -571,10 +580,10 @@ export default function DashboardClient({ user }: { user: User }) {
                             <div style={{ fontSize:'0.63rem', color:T.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:1 }}>{t.trackArtist || t.releaseArtist} · <span style={{ fontFamily:"'JetBrains Mono', monospace", fontSize:'0.6rem' }}>{t.pos}</span>{t.year ? ` · ${t.year}` : ''}</div>
                           </div>
                           <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
-                            {t.key && <span style={{ fontSize:'0.68rem', fontWeight:700, color: t.keySource==='enriched'||t.keySource==='manual' ? T.accent : T.muted, fontFamily:"'Geist Mono', 'GeistMono', monospace", background:T.accentGlow, padding:'2px 6px', borderRadius:4, letterSpacing:'0.02em' }}>{t.key}</span>}
-                            {t.bpm && <span style={{ fontSize:'0.72rem', fontWeight:600, color: t.bpmSource==='enriched'||t.bpmSource==='manual' ? T.text : T.muted, fontFamily:"'Geist Mono', 'GeistMono', monospace", minWidth:28, textAlign:'right', letterSpacing:'0.02em' }}>{t.bpm}</span>}
-                            <button onClick={() => setAnalysingId(analysingId === t.id ? null : t.id)} title="Analyse audio" style={{ ...btn('ghost'), padding:'0 6px', height:28, color: t.bpmSource==='enriched' ? T.green : T.muted }}>{Icon.music}</button>
-                            <button onClick={() => editingId === t.id ? setEditingId(null) : openEdit(t)} title="Edit manually" style={{ ...btn('ghost'), padding:'0 6px', height:28, color: t.bpmSource==='manual'||t.keySource==='manual' ? T.accent : T.muted }}>{Icon.edit}</button>
+                            {t.key && <span style={{ fontSize:'0.68rem', fontWeight:700, color: t.keySource==='enriched'||t.keySource==='manual' ? T.djAmber : T.muted, fontFamily:"var(--font-geist-mono), monospace", background: t.keySource==='enriched'||t.keySource==='manual' ? `${T.djAmber}18` : 'transparent', padding:'2px 6px', borderRadius:4, letterSpacing:'0.02em' }}>{t.key}</span>}
+                            {t.bpm && <span style={{ fontSize:'0.72rem', fontWeight:600, color: t.bpmSource==='enriched'||t.bpmSource==='manual' ? T.djAmber : T.muted, fontFamily:"var(--font-geist-mono), monospace", minWidth:28, textAlign:'right', letterSpacing:'0.02em' }}>{t.bpm}</span>}
+                            <button onClick={() => setAnalysingId(analysingId === t.id ? null : t.id)} title="Analyse audio" style={{ ...btn('ghost'), padding:'0 6px', height:28, color: t.bpmSource==='enriched' ? T.greenAlt : T.muted }}>{Icon.music}</button>
+                            <button onClick={() => editingId === t.id ? setEditingId(null) : openEdit(t)} title="Edit manually" style={{ ...btn('ghost'), padding:'0 6px', height:28, color: t.bpmSource==='manual'||t.keySource==='manual' ? T.djAmber : T.muted }}>{Icon.edit}</button>
                             <button onClick={() => added?removeFromSet(t.id):addToSet(t)} style={{ padding:'4px 10px', borderRadius:7, fontSize:'0.7rem', fontWeight:700, cursor:'pointer', border:'none', background:added?T.surface3:T.accent, color:added?T.muted:T.accentFg, transition:'all 0.15s', letterSpacing:'0.02em' }}>{added ? Icon.save : '+'}</button>
                           </div>
                         </div>
@@ -656,8 +665,8 @@ export default function DashboardClient({ user }: { user: User }) {
                             <div style={{ fontSize:'0.78rem', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.title}</div>
                             <div style={{ fontSize:'0.65rem', color:T.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.trackArtist} · {t.pos}</div>
                           </div>
-                          {t.key && <span style={{ fontSize:'0.65rem', fontWeight:700, color: t.keySource==='enriched'?T.green:T.accent }}>{t.key}</span>}
-                          {t.bpm && <span style={{ fontSize:'0.65rem', color: t.bpmSource==='enriched'?T.green:T.muted }}>{t.bpm}</span>}
+                          {t.key && <span style={{ fontSize:'0.65rem', fontWeight:700, color: t.keySource==='enriched'||t.keySource==='manual' ? T.djAmber : T.muted }}>{t.key}</span>}
+                          {t.bpm && <span style={{ fontSize:'0.65rem', color: t.bpmSource==='enriched'||t.bpmSource==='manual' ? T.djAmber : T.muted }}>{t.bpm}</span>}
                           <div style={{ display:'flex', gap:2 }}>
                             <button onClick={() => moveUp(i)} disabled={i===0} style={{ ...btn('ghost'), padding:'2px 5px', fontSize:'0.7rem' }}>↑</button>
                             <button onClick={() => moveDown(i)} disabled={i===djSet.length-1} style={{ ...btn('ghost'), padding:'2px 5px', fontSize:'0.7rem' }}>↓</button>
@@ -702,7 +711,7 @@ export default function DashboardClient({ user }: { user: User }) {
                         <span style={{ color:T.subtle, fontSize:'0.65rem', width:20, fontVariantNumeric:'tabular-nums' }}>{i+1}</span>
                         <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.title}</span>
                         {compat && <span style={{ fontWeight:700, color:compatColor(compat), flexShrink:0 }}>{compat}</span>}
-                        {bridge && <span style={{ color:bridge.ok?T.green:'#c0392b', flexShrink:0 }}>{bridge.l}</span>}
+                        {bridge && <span style={{ color:bridge.ok?T.greenAlt:T.red, flexShrink:0 }}>{bridge.l}</span>}
                         {drift && <span style={{ color:drift.high?'#c0392b':T.muted, flexShrink:0 }}>{drift.sign}{drift.pct}%</span>}
                       </div>;
                     })}
