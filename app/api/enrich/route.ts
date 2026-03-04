@@ -3,18 +3,17 @@
  * Body: { artist, title, genres?, styles? }
  * Returns: { bpm, key, source, confidence, correction }
  *
- * Pipeline:
- * 1. Claude web search → raw BPM/key from Tunebat/Beatport
- * 2. Genre-aware validation → catch half-time / double-time errors  
- * 3. Gemini Flash → sanity check + correction if confidence is low
+ * Pipeline (optimised for Vercel Hobby 10s limit):
+ * 1. Gemini Flash — answers from training data in ~1-3s
+ * 2. validateBpmKey — genre-aware half-time/double-time correction
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { validateBpmKey } from '@/lib/validateBpmKey';
-export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
 
-// ── Key normalisation ─────────────────────────────────────────────────────
+export const dynamic     = 'force-dynamic';
+export const maxDuration = 10;
+
 const CAM_KEYS = ['1A','1B','2A','2B','3A','3B','4A','4B','5A','5B','6A','6B',
                   '7A','7B','8A','8B','9A','9B','10A','10B','11A','11B','12A','12B'];
 
@@ -34,156 +33,82 @@ function normKey(raw: string): string | null {
   const lo = raw.trim().toLowerCase().replace(/[♯]/g,'#').replace(/[♭]/g,'b');
   if (KEY_TO_CAM[lo]) return KEY_TO_CAM[lo];
   const m = lo.match(/^([a-g][#b]?)\s*(major|minor|maj|min)/);
-  if (m) return KEY_TO_CAM[`${m[1]} ${m[2].startsWith('min')?'minor':'major'}`] || null;
+  if (m) return KEY_TO_CAM[`${m[1]} ${m[2].startsWith('min') ? 'minor' : 'major'}`] || null;
   return null;
 }
 
-function extractJSON(text: string): { bpm: number | null; key: string | null } | null {
-  const attempts = [
-    text.match(/```(?:json)?\s*(\{[\s\S]*?"bpm"[\s\S]*?\})\s*```/),
-    text.match(/(\{"bpm"\s*:\s*\d[\s\S]*?\})/),
-    text.match(/(\{[\s\S]*?"bpm"\s*:[\s\S]*?\})/),
-  ];
-  for (const m of attempts) {
-    if (!m) continue;
-    try {
-      const p = JSON.parse(m[1]);
-      const bpm = typeof p.bpm === 'number' ? Math.round(p.bpm) : null;
-      const key = p.key ? (normKey(String(p.key)) ?? null) : null;
-      if (bpm || key) return { bpm, key };
-    } catch { continue; }
-  }
-  const bpmM = text.match(/\b(\d{2,3})\s*(?:BPM|bpm)/);
-  const camM = text.match(/\b(\d{1,2}[ABab])\b/);
-  const bpm = bpmM ? parseInt(bpmM[1]) : null;
-  const key = camM ? camM[1].toUpperCase() : null;
-  return (bpm || key) ? { bpm, key: key && CAM_KEYS.includes(key) ? key : null } : null;
-}
-
-// ── Step 1: Claude web search ─────────────────────────────────────────────
-async function searchWithClaude(
-  artist: string, title: string, genres: string[], styles: string[]
-): Promise<{ bpm: number | null; key: string | null } | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return null;
-
-  const genreHint = [...genres, ...styles].slice(0, 4).join(', ');
-  const prompt = `Find the BPM and musical key for "${title}" by ${artist}${genreHint ? ` (genre: ${genreHint})` : ''}.
-Search Tunebat, Beatport, or Juno Download.
-IMPORTANT: House/Techno BPM range is 118–135. If you find ~60–65 BPM it is a half-time error — double it.
-Reply with ONLY this JSON on the last line:
-{"bpm": 123, "key": "11A"}
-Camelot: C maj=8B, Db=3B, D=10B, Eb=5B, E=12B, F=7B, Gb=2B, G=9B, Ab=4B, A=11B, Bb=6B, B=1B, C min=5A, Db min=12A, D min=7A, Eb min=2A, E min=9A, F min=4A, Gb min=11A, G min=6A, Ab min=1A, A min=8A, Bb min=3A, B min=10A`;
-
+function parseResponse(text: string): { bpm: number | null; key: string | null } | null {
+  const clean = text.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1024,
-        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-        messages: [{ role: 'user', content: prompt }],
-      }),
-      signal: AbortSignal.timeout(45000),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const text = (data?.content || []).filter((b: {type:string}) => b.type === 'text').map((b: {text:string}) => b.text).join('\n');
-    return extractJSON(text);
-  } catch { return null; }
+    const p = JSON.parse(clean);
+    const bpm = typeof p.bpm === 'number' && p.bpm > 0 ? Math.round(p.bpm) : null;
+    const key = p.key ? normKey(String(p.key)) : null;
+    if (bpm || key) return { bpm, key };
+  } catch { /* fall through */ }
+  const bpmM = clean.match(/\b(\d{2,3})\s*(?:BPM|bpm)/);
+  const camM  = clean.match(/\b(\d{1,2}[ABab])\b/);
+  const bpm = bpmM ? parseInt(bpmM[1]) : null;
+  const keyRaw = camM ? camM[1].toUpperCase() : null;
+  const key = keyRaw && CAM_KEYS.includes(keyRaw) ? keyRaw : null;
+  return (bpm || key) ? { bpm, key } : null;
 }
 
-// ── Step 3: Gemini Flash validation (runs when confidence is low) ──────────
-async function validateWithGemini(
-  artist: string,
-  title: string,
-  rawBpm: number | null,
-  rawKey: string | null,
-  genres: string[],
-  styles: string[],
-): Promise<{ bpm: number | null; key: string | null; correction: string } | null> {
+async function lookupWithGemini(
+  artist: string, title: string, genres: string[], styles: string[],
+): Promise<{ bpm: number | null; key: string | null } | null> {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) return null;
 
+  const genreHint = [...genres, ...styles].slice(0, 4).join(', ') || 'unknown';
+  const prompt = `You are a DJ music database. Return the BPM and musical key for this track.
+
+Artist: ${artist}
+Title: ${title}
+Genre: ${genreHint}
+
+Rules:
+- Use your knowledge of Beatport, Tunebat, Juno Download, DJ record pools
+- BPM must be the DJ-playable tempo, never half-time or double-time
+- Ranges: House 118-130, Deep House 118-126, Techno 128-145, Disco 108-128, Funk 85-115, Soul 70-110, Jazz 60-200
+- Convert key to Camelot notation (e.g. "11A", "8B")
+- If unknown, make a genre-appropriate estimate and set is_estimate true
+
+Respond with ONLY this JSON, no other text:
+{"bpm": 120, "key": "8A", "is_estimate": false}`;
+
   try {
     const genAI = new GoogleGenerativeAI(geminiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-
-    const genreHint = [...genres, ...styles].slice(0, 4).join(', ') || 'unknown';
-    const prompt = `Identify the correct DJ metadata for: "${artist} - ${title}".
-Genre context: ${genreHint}
-Current API returned: BPM=${rawBpm ?? 'unknown'}, Key=${rawKey ?? 'unknown'}
-
-This may be a half-time error (e.g. 60 BPM reported for a 120 BPM House track).
-Common ranges: House 118–130, Deep House 118–126, Techno 128–145, Disco 108–128, Funk 85–115, Soul 70–110.
-
-Return ONLY a JSON object, no other text:
-{
-  "corrected_bpm": number,
-  "camelot_key": string,
-  "correction_note": string,
-  "is_verified": boolean
-}`;
-
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.0-flash',
+      generationConfig: { maxOutputTokens: 80, temperature: 0.1 },
+    });
     const result = await model.generateContent(prompt);
-    const text = result.response.text().trim();
-
-    // Strip markdown fences if present
-    const clean = text.replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,'').trim();
-    const parsed = JSON.parse(clean);
-
-    const bpm = typeof parsed.corrected_bpm === 'number' ? Math.round(parsed.corrected_bpm) : null;
-    const key = parsed.camelot_key ? (normKey(String(parsed.camelot_key)) ?? null) : null;
-    const correction = parsed.correction_note || 'Gemini validation applied';
-
-    return (bpm || key) ? { bpm, key, correction } : null;
+    return parseResponse(result.response.text());
   } catch (e) {
     console.error('[gemini]', e);
     return null;
   }
 }
 
-// ── Main handler ──────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
     const { artist, title, genres = [], styles = [] } = await req.json();
     if (!artist || !title) return NextResponse.json({ error: 'missing params' }, { status: 400 });
 
-    // Step 1: web search
-    const raw = await searchWithClaude(artist, title, genres, styles);
-
-    // Step 2: genre-aware validation (catches half-time errors algorithmically)
-    const validated = validateBpmKey(raw?.bpm ?? null, raw?.key ?? null, genres, styles);
-
-    // Step 3: if confidence is still low, ask Gemini to verify/correct
-    if (validated.confidence === 'low') {
-      const geminiResult = await validateWithGemini(
-        artist, title, validated.bpm, validated.key, genres, styles
-      );
-      if (geminiResult?.bpm || geminiResult?.key) {
-        return NextResponse.json({
-          bpm: geminiResult.bpm ?? validated.bpm,
-          key: geminiResult.key ?? validated.key,
-          source: 'gemini_validated',
-          confidence: 'high',
-          correction: [validated.correction, geminiResult.correction].filter(Boolean).join(' → '),
-        });
-      }
-    }
-
-    // Return validated result
-    if (validated.bpm || validated.key) {
+    const raw = await lookupWithGemini(artist, title, genres, styles);
+    if (!raw) {
       return NextResponse.json({
-        bpm: validated.bpm,
-        key: validated.key,
-        source: raw ? 'web_search' : 'not_found',
-        confidence: validated.confidence,
-        correction: validated.correction,
+        bpm: null, key: null,
+        source: process.env.GEMINI_API_KEY ? 'not_found' : 'no_api_key',
+        confidence: 'low', correction: null,
       });
     }
 
-    return NextResponse.json({ bpm: null, key: null, source: 'not_found', confidence: 'low', correction: null });
+    const validated = validateBpmKey(raw.bpm, raw.key, genres, styles);
+    return NextResponse.json({
+      bpm: validated.bpm, key: validated.key,
+      source: 'gemini', confidence: validated.confidence, correction: validated.correction,
+    });
   } catch (err) {
     console.error('[enrich]', err);
     return NextResponse.json({ bpm: null, key: null, source: 'error', confidence: 'low', correction: null });
