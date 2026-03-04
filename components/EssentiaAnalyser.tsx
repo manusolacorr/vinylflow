@@ -26,130 +26,135 @@ const KEY_TO_CAM: Record<string, string> = {
 
 const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 
-// ── BPM detection via autocorrelation ─────────────────────────────────────
-function detectBpm(audioData: Float32Array, sampleRate: number): number {
-  // Downsample to ~4kHz for speed
-  const step = Math.floor(sampleRate / 4000);
-  const downsampled: number[] = [];
-  for (let i = 0; i < audioData.length; i += step) {
-    downsampled.push(Math.abs(audioData[i]));
-  }
-
-  // Onset strength: diff of downsampled envelope
-  const onsets: number[] = [];
-  for (let i = 1; i < downsampled.length; i++) {
-    onsets.push(Math.max(0, downsampled[i] - downsampled[i - 1]));
-  }
-
-  const effectiveSr = sampleRate / step;
-
-  // Autocorrelation over 60–200 BPM range
+// ── BPM detection via multi-window autocorrelation + median vote ──────────
+function detectBpmWindow(onsets: number[], effectiveSr: number): number | null {
   const minLag = Math.floor(effectiveSr * 60 / 200);
   const maxLag = Math.floor(effectiveSr * 60 / 60);
+  if (onsets.length < maxLag * 2) return null;
 
-  let bestLag = minLag;
-  let bestCorr = -Infinity;
-
+  let bestLag = minLag, bestCorr = -Infinity;
   for (let lag = minLag; lag <= maxLag; lag++) {
     let corr = 0;
-    for (let i = 0; i < onsets.length - lag; i++) {
-      corr += onsets[i] * onsets[i + lag];
-    }
+    for (let i = 0; i < onsets.length - lag; i++) corr += onsets[i] * onsets[i + lag];
     if (corr > bestCorr) { bestCorr = corr; bestLag = lag; }
   }
-
-  const rawBpm = (effectiveSr * 60) / bestLag;
-
-  // Snap to nearest DJ-friendly BPM (within ±2)
-  const djBpms = [
-    70,72,74,76,78,80,82,84,86,88,90,92,94,96,98,100,
-    102,104,106,108,110,112,114,116,118,120,122,124,126,128,130,
-    132,134,136,138,140,142,144,146,148,150
-  ];
-  let nearest = Math.round(rawBpm);
-  let nearestDist = Infinity;
-  for (const b of djBpms) {
-    const d = Math.abs(rawBpm - b);
-    if (d < nearestDist) { nearestDist = d; nearest = b; }
-  }
-
-  // Half/double time correction
-  if (nearest < 90) {
-    const doubled = nearest * 2;
-    if (doubled >= 110 && doubled <= 150) nearest = doubled;
-  } else if (nearest > 155) {
-    const halved = nearest / 2;
-    if (halved >= 60 && halved <= 155) nearest = halved;
-  }
-
-  return nearest;
+  return (effectiveSr * 60) / bestLag;
 }
 
-// ── Key detection via chromagram + Krumhansl-Schmuckler ───────────────────
-function detectKey(audioData: Float32Array, sampleRate: number): { key: string; scale: string; strength: number } {
-  const frameSize = 4096;
-  const hopSize = 2048;
-  const chroma = new Float32Array(12);
+function snapBpm(raw: number): number {
+  // Half/double time correction first
+  let bpm = raw;
+  if (bpm < 90)       { const d = bpm * 2;  if (d >= 100 && d <= 155) bpm = d; }
+  else if (bpm > 155) { const h = bpm / 2;  if (h >= 60  && h <= 155) bpm = h; }
+  // Snap to nearest even integer (most DJ tempos are even)
+  return Math.round(bpm / 2) * 2;
+}
 
-  // Build chromagram
-  for (let start = 0; start + frameSize < audioData.length; start += hopSize) {
-    const frame = audioData.slice(start, start + frameSize);
+function detectBpm(audioData: Float32Array, sampleRate: number): number {
+  const step = Math.floor(sampleRate / 4000);
+  const effectiveSr = sampleRate / step;
 
-    // Hann window
-    for (let i = 0; i < frameSize; i++) {
-      frame[i] *= 0.5 * (1 - Math.cos(2 * Math.PI * i / (frameSize - 1)));
-    }
+  // Build full onset envelope
+  const full: number[] = [];
+  for (let i = 0; i < audioData.length; i += step) full.push(Math.abs(audioData[i]));
+  const onsets: number[] = [0];
+  for (let i = 1; i < full.length; i++) onsets.push(Math.max(0, full[i] - full[i - 1]));
 
-    // Simple DFT at chromagram frequencies (C2–B5)
-    for (let note = 0; note < 12; note++) {
-      for (let octave = 2; octave <= 5; octave++) {
-        const freq = 261.63 * Math.pow(2, (note + (octave - 4) * 12) / 12);
-        let re = 0, im = 0;
-        for (let n = 0; n < frameSize; n++) {
-          const angle = 2 * Math.PI * freq * n / sampleRate;
-          re += frame[n] * Math.cos(angle);
-          im -= frame[n] * Math.sin(angle);
-        }
-        chroma[note] += Math.sqrt(re * re + im * im);
-      }
-    }
+  // Analyse in 10-second windows, collect raw BPMs
+  const winSamples = Math.floor(effectiveSr * 10);
+  const hopSamples = Math.floor(effectiveSr * 5);
+  const rawBpms: number[] = [];
+
+  for (let start = 0; start + winSamples < onsets.length; start += hopSamples) {
+    const win = onsets.slice(start, start + winSamples);
+    const bpm = detectBpmWindow(win, effectiveSr);
+    if (bpm && bpm > 60 && bpm < 200) rawBpms.push(bpm);
   }
 
-  // Normalise
-  const maxC = Math.max(...Array.from(chroma));
-  if (maxC > 0) for (let i = 0; i < 12; i++) chroma[i] /= maxC;
-
-  // Krumhansl-Schmuckler profiles
-  const MAJOR = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
-  const MINOR = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
-
-  function correlate(chroma: Float32Array, profile: number[], shift: number) {
-    const n = 12;
-    let sum = 0;
-    const cx = Array.from(chroma);
-    const px = profile.map((_, i) => profile[(i + shift) % n]);
-    const cmean = cx.reduce((a,b) => a+b) / n;
-    const pmean = px.reduce((a,b) => a+b) / n;
-    let num = 0, dc = 0, dp = 0;
-    for (let i = 0; i < n; i++) {
-      num += (cx[i] - cmean) * (px[i] - pmean);
-      dc  += (cx[i] - cmean) ** 2;
-      dp  += (px[i] - pmean) ** 2;
-    }
-    sum = dc * dp > 0 ? num / Math.sqrt(dc * dp) : 0;
-    return sum;
+  if (rawBpms.length === 0) {
+    // Fallback: full signal
+    const bpm = detectBpmWindow(onsets, effectiveSr);
+    return bpm ? snapBpm(bpm) : 120;
   }
 
-  let bestKey = 0, bestScale = 'major', bestStrength = -Infinity;
+  // Snap all, then take the most common snapped value
+  const snapped = rawBpms.map(snapBpm);
+  const votes: Record<number, number> = {};
+  for (const b of snapped) votes[b] = (votes[b] || 0) + 1;
+  const winner = Object.entries(votes).sort((a, b) => b[1] - a[1])[0];
+  return parseInt(winner[0]);
+}
 
+// ── Key detection via chromagram + Krumhansl-Schmuckler (multi-window) ────
+const MAJOR_PROFILE = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
+const MINOR_PROFILE = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
+
+function chromaCorrelate(chroma: number[], profile: number[], shift: number): number {
+  const n = 12;
+  const px = Array.from({ length: n }, (_, i) => profile[(i + shift) % n]);
+  const cmean = chroma.reduce((a, b) => a + b) / n;
+  const pmean = px.reduce((a, b) => a + b) / n;
+  let num = 0, dc = 0, dp = 0;
+  for (let i = 0; i < n; i++) {
+    num += (chroma[i] - cmean) * (px[i] - pmean);
+    dc  += (chroma[i] - cmean) ** 2;
+    dp  += (px[i] - pmean) ** 2;
+  }
+  return dc * dp > 0 ? num / Math.sqrt(dc * dp) : 0;
+}
+
+function buildChroma(audioData: Float32Array, sampleRate: number, start: number, frameSize: number): number[] {
+  const chroma = new Array(12).fill(0);
+  const frame = new Float32Array(frameSize);
+  for (let i = 0; i < frameSize && start + i < audioData.length; i++) {
+    frame[i] = audioData[start + i] * 0.5 * (1 - Math.cos(2 * Math.PI * i / (frameSize - 1)));
+  }
   for (let note = 0; note < 12; note++) {
-    const majorCorr = correlate(chroma, MAJOR, note);
-    const minorCorr = correlate(chroma, MINOR, note);
-    if (majorCorr > bestStrength) { bestStrength = majorCorr; bestKey = note; bestScale = 'major'; }
-    if (minorCorr > bestStrength) { bestStrength = minorCorr; bestKey = note; bestScale = 'minor'; }
+    for (let octave = 2; octave <= 5; octave++) {
+      const freq = 261.63 * Math.pow(2, (note + (octave - 4) * 12) / 12);
+      let re = 0, im = 0;
+      for (let n = 0; n < frameSize; n++) {
+        const angle = 2 * Math.PI * freq * n / sampleRate;
+        re += frame[n] * Math.cos(angle);
+        im -= frame[n] * Math.sin(angle);
+      }
+      chroma[note] += Math.sqrt(re * re + im * im);
+    }
+  }
+  return chroma;
+}
+
+function detectKey(audioData: Float32Array, sampleRate: number): { key: string; scale: string; strength: number } {
+  const frameSize = 8192;
+  const hopSize   = frameSize * 2; // sparse hops — key doesn't change
+
+  // Vote across windows
+  const votes: Record<string, number> = {};
+
+  for (let start = 0; start + frameSize < audioData.length; start += hopSize) {
+    const chroma = buildChroma(audioData, sampleRate, start, frameSize);
+    const maxC = Math.max(...chroma);
+    if (maxC === 0) continue;
+    const norm = chroma.map(v => v / maxC);
+
+    let bestKey = 0, bestScale = 'major', bestCorr = -Infinity;
+    for (let note = 0; note < 12; note++) {
+      const maj = chromaCorrelate(norm, MAJOR_PROFILE, note);
+      const min = chromaCorrelate(norm, MINOR_PROFILE, note);
+      if (maj > bestCorr) { bestCorr = maj; bestKey = note; bestScale = 'major'; }
+      if (min > bestCorr) { bestCorr = min; bestKey = note; bestScale = 'minor'; }
+    }
+    const label = `${NOTE_NAMES[bestKey]} ${bestScale}`;
+    votes[label] = (votes[label] || 0) + 1;
   }
 
-  return { key: NOTE_NAMES[bestKey], scale: bestScale, strength: bestStrength };
+  if (Object.keys(votes).length === 0) return { key: 'C', scale: 'major', strength: 0 };
+
+  // Pick most-voted key
+  const winner = Object.entries(votes).sort((a, b) => b[1] - a[1])[0];
+  const total  = Object.values(votes).reduce((a, b) => a + b, 0);
+  const [note, scale] = winner[0].split(' ');
+  return { key: note, scale, strength: winner[1] / total }; // strength = vote share
 }
 
 // ── Theme ──────────────────────────────────────────────────────────────────
