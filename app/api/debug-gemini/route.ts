@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   try {
     const genAI = new GoogleGenerativeAI(key);
     const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-1.5-flash-latest',
       generationConfig: { maxOutputTokens: 80, temperature: 0.1 },
     });
     const result = await model.generateContent('Return this JSON exactly: {"bpm": 120, "key": "8A", "is_estimate": false}');
