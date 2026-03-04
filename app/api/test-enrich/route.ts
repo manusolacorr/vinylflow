@@ -1,10 +1,6 @@
-/**
- * GET /api/test-enrich
- * Tests enrichment on 4 gold-standard tracks and returns a score.
- * Frits Wentink "Rare Bird" EP — known correct values.
- */
-import { NextRequest, NextResponse } from 'next/server';
-export const dynamic     = 'force-dynamic';
+import { NextResponse } from 'next/server';
+import { enrichTrack } from '@/lib/geminiLookup';
+export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const TRACKS = [
@@ -14,39 +10,24 @@ const TRACKS = [
   { artist: 'Frits Wentink', title: 'Bouquet At Rest',           genres: ['Electronic'], styles: ['Deep House'], expected: { bpm: 122, key: '6A'  } },
 ];
 
-export async function GET(req: NextRequest) {
-  const { origin } = new URL(req.url);
+export async function GET() {
   const results = [];
-
   for (const t of TRACKS) {
-    const start = Date.now();
-    const res = await fetch(`${origin}/api/enrich`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ artist: t.artist, title: t.title, genres: t.genres, styles: t.styles }),
-    });
-    const ms   = Date.now() - start;
-    const data = await res.json();
-
-    const bpmOk = data.bpm != null && Math.abs(data.bpm - t.expected.bpm) <= 3;
-    const keyOk = data.key === t.expected.key;
-
+    const start  = Date.now();
+    const result = await enrichTrack(t.artist, t.title, t.genres, t.styles);
+    const ms     = Date.now() - start;
+    const bpmOk  = result.bpm != null && Math.abs(result.bpm - t.expected.bpm) <= 3;
+    const keyOk  = result.key === t.expected.key;
     results.push({
-      track:      `${t.artist} — ${t.title}`,
-      got:        { bpm: data.bpm, key: data.key, source: data.source, confidence: data.confidence },
-      expected:   t.expected,
-      bpmOk,
-      keyOk,
-      pass:       bpmOk && keyOk,
+      track: `${t.artist} — ${t.title}`,
+      got: { bpm: result.bpm, key: result.key, source: result.source, confidence: result.confidence },
+      expected: t.expected,
+      bpmOk, keyOk,
+      pass: bpmOk && keyOk,
       ms,
-      correction: data.correction ?? null,
+      correction: result.correction,
     });
   }
-
   const passed = results.filter(r => r.pass).length;
-  return NextResponse.json({
-    score:   `${passed}/${results.length}`,
-    hasKey:  !!process.env.GEMINI_API_KEY,
-    tracks:  results,
-  }, { headers: { 'Content-Type': 'application/json' } });
+  return NextResponse.json({ score: `${passed}/${results.length}`, tracks: results });
 }
