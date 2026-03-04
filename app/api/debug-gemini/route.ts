@@ -1,26 +1,42 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 10;
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return NextResponse.json({ error: 'no key' });
 
-  try {
-    const genAI = new GoogleGenerativeAI(key);
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash-latest',
-      generationConfig: { maxOutputTokens: 80, temperature: 0.1 },
-    });
-    const result = await model.generateContent('Return this JSON exactly: {"bpm": 120, "key": "8A", "is_estimate": false}');
-    const text = result.response.text();
-    return NextResponse.json({ ok: true, raw: text, keyPrefix: key.slice(0, 12) });
-  } catch (e: unknown) {
-    return NextResponse.json({
-      ok: false,
-      error: e instanceof Error ? e.message : String(e),
-      keyPrefix: key.slice(0, 12),
-    });
+  // Try both API versions and a few model names
+  const candidates = [
+    'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent',
+    'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-001:generateContent',
+    'https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent',
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-001:generateContent',
+  ];
+
+  const results: Record<string, string> = {};
+
+  for (const url of candidates) {
+    try {
+      const res = await fetch(`${url}?key=${key}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: 'Reply with only: {"bpm":120,"key":"8A"}' }] }],
+          generationConfig: { maxOutputTokens: 30 },
+        }),
+        signal: AbortSignal.timeout(8000),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        results[url] = 'OK: ' + JSON.stringify(data?.candidates?.[0]?.content?.parts?.[0]?.text);
+      } else {
+        results[url] = `${res.status}: ${data?.error?.message?.slice(0, 80)}`;
+      }
+    } catch (e: unknown) {
+      results[url] = 'TIMEOUT/ERR: ' + (e instanceof Error ? e.message.slice(0, 60) : String(e));
+    }
   }
+
+  return NextResponse.json({ keyPrefix: key.slice(0, 12), results });
 }
