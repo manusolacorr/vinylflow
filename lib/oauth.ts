@@ -128,7 +128,7 @@ export async function discogsGet<T = unknown>(
     await new Promise(r => setTimeout(r, 2000));
     return discogsGet(path, accessToken, accessTokenSecret);
   }
-  if (!res.ok) throw new Error('Discogs API ' + res.status + ' for ' + path);
+  if (!res.ok) throw new Error(`Discogs API ${res.status} for ${path}`);
   return res.json() as Promise<T>;
 }
 
