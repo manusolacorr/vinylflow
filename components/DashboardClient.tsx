@@ -471,7 +471,7 @@ export default function DashboardClient({ user }: { user: User }) {
             </span>
           )}
           {releases.length > 0 && (
-            <button onClick={exportToExcel} style={{ ...btn(), fontSize:'0.7rem' }} title="Export collection and set to Excel" style={{display:'inline-flex',alignItems:'center',gap:5}}>{Icon.download} Export</button>
+            <button onClick={exportToExcel} style={{ ...btn(), display:'inline-flex', alignItems:'center', gap:5 }} title="Export collection and set to Excel">{Icon.download} Export</button>
           )}
           {releases.length > 0 && !enriching && (
             <button onClick={expandTracklists} style={{ ...btn(), fontSize:'0.7rem', color: enrichedCount > 0 ? T.muted : T.text }}>
@@ -521,13 +521,13 @@ export default function DashboardClient({ user }: { user: User }) {
         {!loading && releases.length > 0 && tab === 'library' && (
           <div style={{ flex:1, overflow:'hidden', display:'flex', flexDirection:'column' }}>
             <div style={{ background:T.surface, borderBottom:`1px solid ${T.border}`, padding:'0 1.5rem', height:44, display:'flex', alignItems:'center', gap:8, flexShrink:0, flexWrap:'nowrap', overflowX:'auto' }}>
-              <button onClick={() => setFilterOpen(o => !o)} style={{ ...btn('ghost'), fontSize:'0.7rem', color:T.muted, padding:'2px 6px' }}style={{ display:'inline-flex', alignItems:'center', gap:5, color:T.muted }}>{Icon.filter} Filters</button>
+              <button onClick={() => setFilterOpen(o => !o)} style={{ ...btn('ghost'), display:'inline-flex', alignItems:'center', gap:5, color:T.muted }}>{Icon.filter} Filters</button>
               <div style={{ display:'flex', gap:4, flexWrap:'wrap', flex:1 }}>
                 {activePills.slice(0,5).map((p,i) => <span key={i} style={{ ...chip(true,p.color), fontSize:'0.65rem', padding:'2px 7px' }}>{p.label}</span>)}
                 {activePills.length===0 && <span style={{ fontSize:'0.65rem', color:T.muted, fontStyle:'italic' }}>no filters</span>}
               </div>
               <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="Search tracks..." style={{ padding:'5px 12px', borderRadius:8, border:`1px solid ${T.border}`, fontSize:'0.75rem', width:190, outline:'none', background:T.surface2, color:T.text, transition:'border 0.15s' }} />
-              <button onClick={autoSuggest} style={btn('primary')} style={{display:'inline-flex',alignItems:'center',gap:5}}>{Icon.bolt} Auto-Suggest</button>
+              <button onClick={autoSuggest} style={{ ...btn('primary'), display:'inline-flex', alignItems:'center', gap:5 }}>{Icon.bolt} Auto-Suggest</button>
             </div>
 
             {filterOpen && (
@@ -721,7 +721,7 @@ export default function DashboardClient({ user }: { user: User }) {
               <button onClick={() => setStickerSource('set')} style={chip(stickerSource==='set', T.accent)}>Current Set ({djSet.length})</button>
               <div style={{ flex:1 }} />
               <span style={{ fontSize:'0.65rem', color:T.muted }}>Avery L7651 / 65-up</span>
-              <button onClick={() => window.print()} style={{ ...btn('primary'), padding:'5px 14px' }} style={{display:'inline-flex',alignItems:'center',gap:6}}>{Icon.print} Print</button>
+              <button onClick={() => window.print()} style={{ ...btn('primary'), display:'inline-flex', alignItems:'center', gap:6 }}>{Icon.print} Print</button>
             </div>
 
             <div className="no-print" style={{ background:T.surface2, borderBottom:`1px solid ${T.border}`, padding:'0.4rem 1rem', display:'flex', gap:12, flexWrap:'wrap', flexShrink:0 }}>
