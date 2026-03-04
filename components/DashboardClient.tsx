@@ -1,7 +1,8 @@
 
 'use client';
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import EssentiaAnalyser from './EssentiaAnalyser';
+import { saveTrackOverride, loadAllOverrides, saveDjSet, loadDjSet, countOverrides } from '@/lib/db';
 import {
   ROLES, ROLE_IDS, assignRole, roleOf,
   camCompat, bpmBridge, compatColor,
@@ -86,6 +87,42 @@ export default function DashboardClient({ user }: { user: User }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editBpm, setEditBpm] = useState('');
   const [editKey, setEditKey] = useState('');
+  const [savedCount, setSavedCount] = useState(0);
+  const djSetSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── IndexedDB: restore on mount ──────────────────────────────────────────
+  useEffect(() => {
+    // Restore DJ set
+    loadDjSet().then(saved => { if (saved.length > 0) setDjSet(saved); });
+    // Show how many overrides are cached
+    countOverrides().then(n => setSavedCount(n));
+  }, []);
+
+  // ── IndexedDB: apply overrides whenever releases change ──────────────────
+  useEffect(() => {
+    if (releases.length === 0) return;
+    loadAllOverrides().then(overrides => {
+      if (overrides.size === 0) return;
+      setReleases(prev => prev.map(r => ({
+        ...r,
+        tracks: r.tracks.map(t => {
+          const o = overrides.get(t.id);
+          if (!o) return t;
+          // Only apply if override is newer than a guessed value
+          if (o.bpmSource === 'guessed' && t.bpmSource !== 'guessed') return t;
+          return { ...t, bpm: o.bpm ?? t.bpm, key: o.key ?? t.key, bpmSource: o.bpmSource, keySource: o.keySource };
+        }),
+      })));
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [releases.length]); // only re-run when collection is (re)loaded
+
+  // ── IndexedDB: persist DJ set (debounced 500ms) ──────────────────────────
+  useEffect(() => {
+    if (djSetSaveTimer.current) clearTimeout(djSetSaveTimer.current);
+    djSetSaveTimer.current = setTimeout(() => { saveDjSet(djSet); }, 500);
+    return () => { if (djSetSaveTimer.current) clearTimeout(djSetSaveTimer.current); };
+  }, [djSet]);
 
   const allGenres  = useMemo(() => Array.from(new Set(releases.flatMap(r => r.genres))).sort(), [releases]);
   const allDecades = useMemo(() => Array.from(new Set(releases.map(r => decadeOf(r.year)))).sort(), [releases]);
@@ -196,6 +233,10 @@ export default function DashboardClient({ user }: { user: User }) {
         }));
         setReleases([...workingReleases]);
         setDjSet(prev => prev.map(t => { const e = trackMap[t.id]; if (!e) return t; return { ...t, bpm: e.bpm ?? t.bpm, bpmSource: e.bpm ? 'enriched' as const : t.bpmSource, key: e.key ?? t.key, keySource: e.key ? 'enriched' as const : t.keySource }; }));
+        // Persist enriched data to IndexedDB
+        const newEntries = Object.entries(trackMap);
+        await Promise.all(newEntries.map(([id, e]) => saveTrackOverride({ id, bpm: e.bpm, key: e.key, bpmSource: 'enriched', keySource: 'enriched' })));
+        setSavedCount(await countOverrides());
       }
       await new Promise(r => setTimeout(r, 400));
     }
@@ -212,6 +253,8 @@ export default function DashboardClient({ user }: { user: User }) {
     setReleases(prev => prev.map(r => ({ ...r, tracks: r.tracks.map(update) })));
     setDjSet(prev => prev.map(update));
     setAnalysingId(null);
+    saveTrackOverride({ id: trackId, bpm, key, bpmSource: 'enriched', keySource: 'enriched' });
+    setSavedCount(n => n + 1);
   }
 
   function openEdit(t: Track) {
@@ -223,10 +266,14 @@ export default function DashboardClient({ user }: { user: User }) {
   function saveEdit(id: string) {
     const bpm = parseInt(editBpm) || null;
     const key = editKey.trim().toUpperCase() || null;
+    const bpmSource = bpm ? 'manual' as const : null;
+    const keySource = key ? 'manual' as const : null;
     const update = (t: Track) => t.id === id ? { ...t, bpm: bpm ?? t.bpm, key: key ?? t.key, bpmSource: bpm ? 'manual' as const : t.bpmSource, keySource: key ? 'manual' as const : t.keySource } : t;
     setReleases(prev => prev.map(r => ({ ...r, tracks: r.tracks.map(update) })));
     setDjSet(prev => prev.map(update));
     setEditingId(null);
+    saveTrackOverride({ id, bpm, key, bpmSource, keySource });
+    setSavedCount(n => n + 1);
   }
 
   function autoSuggest() { const pool=filteredTracks.length>0?filteredTracks:allTracks(releases); setDjSet(engine1BuildSet(pool,20)); setTab('set'); }
@@ -258,6 +305,11 @@ export default function DashboardClient({ user }: { user: User }) {
           ))}
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          {savedCount > 0 && (
+            <span title="BPM/key data saved locally — survives page refresh" style={{ fontSize:'0.65rem', color: T.green, display:'flex', alignItems:'center', gap:3 }}>
+              💾 {savedCount} saved
+            </span>
+          )}
           {releases.length > 0 && !enriching && (
             <button onClick={expandTracklists} style={{ ...btn(), fontSize:'0.7rem', color: enrichedCount > 0 ? T.muted : T.text }}>
               {enrichedCount > 0 ? `✓ ${enrichedCount}/${totalTrackCount} enriched` : '⚡ Enrich BPM/Key'}
