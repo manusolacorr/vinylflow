@@ -1,8 +1,7 @@
 /**
  * POST /api/enrich
- * Body: { artist, title, genres?, styles? }
- * Returns: { bpm, key, source, confidence, correction }
- * Uses Gemini REST API directly (no SDK) with gemini-2.0-flash-lite
+ * Uses Claude Haiku (training knowledge only, no web search) — ~1s response
+ * Fits Vercel Hobby 10s limit comfortably.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { validateBpmKey } from '@/lib/validateBpmKey';
@@ -43,57 +42,56 @@ function parseResponse(text: string): { bpm: number | null; key: string | null }
   } catch { /* fall through */ }
   const bpmM = clean.match(/\b(\d{2,3})\s*(?:BPM|bpm)/);
   const camM  = clean.match(/\b(\d{1,2}[ABab])\b/);
-  const bpm = bpmM ? parseInt(bpmM[1]) : null;
+  const bpm   = bpmM ? parseInt(bpmM[1]) : null;
   const keyRaw = camM ? camM[1].toUpperCase() : null;
-  const key = keyRaw && CAM_KEYS.includes(keyRaw) ? keyRaw : null;
+  const key    = keyRaw && CAM_KEYS.includes(keyRaw) ? keyRaw : null;
   return (bpm || key) ? { bpm, key } : null;
 }
 
-async function lookupWithGemini(
+async function lookupWithClaude(
   artist: string, title: string, genres: string[], styles: string[],
 ): Promise<{ bpm: number | null; key: string | null } | null> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) return null;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return null;
 
   const genreHint = [...genres, ...styles].slice(0, 4).join(', ') || 'unknown';
-  const prompt = `You are a DJ music database. Return the BPM and musical key for this track.
+  const prompt = `You are a DJ music database with knowledge of Beatport, Tunebat, Juno Download and record pools.
+Return the BPM and Camelot key for this track from your training knowledge.
 
 Artist: ${artist}
 Title: ${title}
 Genre: ${genreHint}
 
 Rules:
-- Use your knowledge of Beatport, Tunebat, Juno Download, DJ record pools
-- BPM must be the DJ-playable tempo, never half-time or double-time
+- BPM must be DJ-playable tempo, never half-time or double-time
 - Ranges: House 118-130, Deep House 118-126, Techno 128-145, Disco 108-128, Funk 85-115, Soul 70-110
-- Convert key to Camelot notation (e.g. "11A", "8B")
-- If unknown, make a genre-appropriate estimate and set is_estimate true
+- If you don't know this exact track, give a genre-appropriate estimate
+- Convert key to Camelot notation
 
-Respond with ONLY this JSON, no other text:
-{"bpm": 120, "key": "8A", "is_estimate": false}`;
+Respond with ONLY this JSON, nothing else:
+{"bpm": 120, "key": "8A"}`;
 
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 80, temperature: 0.1 },
-        }),
-        signal: AbortSignal.timeout(8000),
-      }
-    );
-    if (!res.ok) {
-      console.error('[gemini]', res.status, await res.text());
-      return null;
-    }
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 60,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
     const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    const text = data?.content?.[0]?.text ?? '';
     return parseResponse(text);
   } catch (e) {
-    console.error('[gemini]', e);
+    console.error('[claude]', e);
     return null;
   }
 }
@@ -103,11 +101,11 @@ export async function POST(req: NextRequest) {
     const { artist, title, genres = [], styles = [] } = await req.json();
     if (!artist || !title) return NextResponse.json({ error: 'missing params' }, { status: 400 });
 
-    const raw = await lookupWithGemini(artist, title, genres, styles);
+    const raw = await lookupWithClaude(artist, title, genres, styles);
     if (!raw) {
       return NextResponse.json({
         bpm: null, key: null,
-        source: process.env.GEMINI_API_KEY ? 'not_found' : 'no_api_key',
+        source: process.env.ANTHROPIC_API_KEY ? 'not_found' : 'no_api_key',
         confidence: 'low', correction: null,
       });
     }
@@ -115,7 +113,7 @@ export async function POST(req: NextRequest) {
     const validated = validateBpmKey(raw.bpm, raw.key, genres, styles);
     return NextResponse.json({
       bpm: validated.bpm, key: validated.key,
-      source: 'gemini', confidence: validated.confidence, correction: validated.correction,
+      source: 'claude', confidence: validated.confidence, correction: validated.correction,
     });
   } catch (err) {
     console.error('[enrich]', err);
