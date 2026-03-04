@@ -1,6 +1,9 @@
 /**
- * Shared BPM/key lookup using Claude Haiku (no web search).
- * Imported directly by both /api/enrich and /api/test-enrich.
+ * Two-pass enrichment:
+ * Pass 1 — BPM via Claude Haiku (~500ms, cheap, works well)
+ * Pass 2 — Key via Claude Sonnet (better music knowledge, targeted prompt)
+ *
+ * Sonnet cost: ~$0.001 per track. 894 tracks ≈ $0.90 total.
  */
 import { validateBpmKey } from '@/lib/validateBpmKey';
 
@@ -28,15 +31,11 @@ export function normKey(raw: string): string | null {
 }
 
 export function parseResponse(text: string): { bpm: number | null; key: string | null } | null {
-  // Strip all markdown fences and trim
   const clean = text.replace(/```(?:json)?/g, '').trim();
-
-  // Try to find any JSON object in the response
   const jsonMatches = clean.match(/\{[^{}]+\}/g) || [];
   for (const jsonStr of jsonMatches) {
     try {
       const p = JSON.parse(jsonStr);
-      // Accept multiple possible field names
       const bpmRaw = p.bpm ?? p.tempo ?? p.bpm_value ?? p.corrected_bpm;
       const keyRaw = p.key ?? p.camelot_key ?? p.camelot ?? p.musical_key;
       const bpm = typeof bpmRaw === 'number' && bpmRaw > 40 && bpmRaw < 220 ? Math.round(bpmRaw) : null;
@@ -44,17 +43,77 @@ export function parseResponse(text: string): { bpm: number | null; key: string |
       if (bpm || key) return { bpm, key };
     } catch { continue; }
   }
-
-  // Fallback: regex scan the whole text
-  const bpmM = clean.match(/\b(\d{2,3})\s*(?:BPM|bpm|Bpm)?(?:\s|$|,|"})/);
+  const bpmM = clean.match(/\b(\d{2,3})\s*(?:BPM|bpm|Bpm)?(?:\s|$|,|})/);
   const camM  = clean.match(/\b(\d{1,2}[ABab])\b/);
-  const keyM  = clean.match(/(?:key|Key)["\s]*[=:]["\s]*([A-Ga-g][#b]?\s*(?:major|minor|maj|min))/i);
+  const keyM  = clean.match(/(?:key|Key)["'\s]*[=:]["'\s]*([A-Ga-g][#b]?\s*(?:major|minor|maj|min))/i);
   const bpm   = bpmM ? parseInt(bpmM[1]) : null;
   const keyStr = camM ? camM[1].toUpperCase() : keyM ? normKey(keyM[1]) : null;
   const key    = keyStr && CAM_KEYS.includes(keyStr) ? keyStr : null;
   return (bpm || key) ? { bpm, key } : null;
 }
 
+async function claudeRequest(model: string, prompt: string, maxTokens: number, apiKey: string): Promise<string | null> {
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.content?.[0]?.text ?? null;
+  } catch { return null; }
+}
+
+// ── Pass 1: BPM via Haiku ─────────────────────────────────────────────────
+async function getBpm(artist: string, title: string, genres: string[], styles: string[], apiKey: string): Promise<number | null> {
+  const genreHint = [...genres, ...styles].slice(0, 4).join(', ') || 'unknown';
+  const prompt = `Return the DJ-playable BPM for: "${artist} - ${title}" (${genreHint}).
+Rules: never half-time/double-time. Ranges: House 118-130, Deep House 118-126, Techno 128-145, Disco 108-128, Funk 85-115, Soul 70-110.
+Respond ONLY with: {"bpm": 120}`;
+  const text = await claudeRequest('claude-haiku-4-5-20251001', prompt, 30, apiKey);
+  if (!text) return null;
+  const parsed = parseResponse(text);
+  return parsed?.bpm ?? null;
+}
+
+// ── Pass 2: Key via Sonnet ────────────────────────────────────────────────
+async function getKey(artist: string, title: string, genres: string[], styles: string[], bpm: number | null, apiKey: string): Promise<string | null> {
+  const genreHint = [...genres, ...styles].slice(0, 4).join(', ') || 'unknown';
+  const bpmHint = bpm ? `BPM is ${bpm}. ` : '';
+
+  const prompt = `You are an expert DJ and music analyst with deep knowledge of electronic music, soul, funk, disco and jazz records.
+
+Identify the musical key of this specific track: "${artist} - ${title}"
+Genre: ${genreHint}
+${bpmHint}
+
+Think about:
+- This artist's known harmonic tendencies and style
+- The mood and energy suggested by the title and genre
+- What you know about this specific record from Beatport, Tunebat, or music databases
+
+IMPORTANT: Do NOT default to A minor / 8A. Only use 8A if you are genuinely confident the track is in A minor.
+The 24 possible Camelot values are equally likely — pick the one that is actually correct for this track.
+
+Camelot reference:
+C maj=8B  Db maj=3B  D maj=10B  Eb maj=5B  E maj=12B  F maj=7B  Gb maj=2B  G maj=9B  Ab maj=4B  A maj=11B  Bb maj=6B  B maj=1B
+C min=5A  Db min=12A  D min=7A  Eb min=2A  E min=9A  F min=4A  Gb min=11A  G min=6A  Ab min=1A  A min=8A  Bb min=3A  B min=10A
+
+Respond ONLY with: {"key": "11A"}`;
+
+  const text = await claudeRequest('claude-sonnet-4-5-20251022', prompt, 50, apiKey);
+  if (!text) return null;
+  const parsed = parseResponse(text);
+  return parsed?.key ?? null;
+}
+
+// ── Main export ───────────────────────────────────────────────────────────
 export interface EnrichResult {
   bpm: number | null;
   key: string | null;
@@ -72,58 +131,20 @@ export async function enrichTrack(
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return { bpm: null, key: null, source: 'no_api_key', confidence: 'low', correction: null };
 
-  const genreHint = [...genres, ...styles].slice(0, 4).join(', ') || 'unknown';
-  const prompt = `DJ metadata lookup. Respond with ONLY the JSON object below, no other text.
+  // Run both passes in parallel
+  const [bpmRaw, keyRaw] = await Promise.all([
+    getBpm(artist, title, genres, styles, apiKey),
+    getKey(artist, title, genres, styles, null, apiKey),
+  ]);
 
-Artist: ${artist}
-Title: ${title}
-Genre: ${genreHint}
+  if (!bpmRaw && !keyRaw) return { bpm: null, key: null, source: 'not_found', confidence: 'low', correction: null };
 
-Camelot key map (use ONLY these values):
-C maj=8B  Db maj=3B  D maj=10B  Eb maj=5B  E maj=12B  F maj=7B
-Gb maj=2B  G maj=9B  Ab maj=4B  A maj=11B  Bb maj=6B  B maj=1B
-C min=5A  Db min=12A  D min=7A  Eb min=2A  E min=9A  F min=4A
-Gb min=11A  G min=6A  Ab min=1A  A min=8A  Bb min=3A  B min=10A
-
-BPM ranges: House 118-130, Deep House 118-126, Techno 128-145, Disco 108-128, Funk 85-115, Soul 70-110
-Never return half-time BPM. If unsure, estimate from genre.
-
-{"bpm": 120, "key": "8A"}`;
-
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 60,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-      signal: AbortSignal.timeout(8000),
-    });
-
-    if (!res.ok) return { bpm: null, key: null, source: 'api_error', confidence: 'low', correction: null };
-
-    const data  = await res.json();
-    const text  = data?.content?.[0]?.text ?? '';
-    const raw   = parseResponse(text);
-
-    if (!raw) return { bpm: null, key: null, source: 'parse_error', confidence: 'low', correction: null };
-
-    const validated = validateBpmKey(raw.bpm, raw.key, genres, styles);
-    return {
-      bpm:        validated.bpm,
-      key:        validated.key,
-      source:     'claude',
-      confidence: validated.confidence,
-      correction: validated.correction,
-    };
-  } catch (e) {
-    console.error('[enrichTrack]', e);
-    return { bpm: null, key: null, source: 'timeout', confidence: 'low', correction: null };
-  }
+  const validated = validateBpmKey(bpmRaw, keyRaw, genres, styles);
+  return {
+    bpm:        validated.bpm,
+    key:        validated.key,
+    source:     'claude',
+    confidence: validated.confidence,
+    correction: validated.correction,
+  };
 }
