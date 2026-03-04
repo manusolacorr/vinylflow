@@ -81,7 +81,8 @@ export default function DashboardClient({ user }: { user: User }) {
   const [decadeFilters, setDecadeFilters] = useState<Set<string>>(new Set());
   const [filterOpen, setFilterOpen] = useState(false);
   const [djSet, setDjSet] = useState<Track[]>([]);
-  const [tab, setTab] = useState<'library' | 'set' | 'analysis'>('library');
+  const [tab, setTab] = useState<'library' | 'set' | 'analysis' | 'stickers'>('library');
+  const [stickerSource, setStickerSource] = useState<'collection' | 'set'>('collection');
   const [page, setPage] = useState(1);
   const [analysingId, setAnalysingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -298,9 +299,9 @@ export default function DashboardClient({ user }: { user: User }) {
       <header style={{ background:T.surface, borderBottom:`1px solid ${T.border}`, height:48, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 1rem', flexShrink:0 }}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
           <span style={{ fontSize:'1rem', fontWeight:700, color:T.accent }}>vinyl.flow</span>
-          {releases.length > 0 && (['library','set','analysis'] as const).map(t => (
+          {releases.length > 0 && (['library','set','analysis','stickers'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)} style={{ ...btn(tab===t?'primary':'ghost'), padding:'3px 10px', fontSize:'0.7rem' }}>
-              {t==='library'?`Library (${filteredTracks.length})`:t==='set'?`Set (${djSet.length})`:'Analysis'}
+              {t==='library'?`Library (${filteredTracks.length})`:t==='set'?`Set (${djSet.length})`:t==='analysis'?'Analysis':'\uD83C\uDFF7 Stickers'}
             </button>
           ))}
         </div>
@@ -544,6 +545,81 @@ export default function DashboardClient({ user }: { user: User }) {
             }
           </div>
         )}
+        {/* ── Stickers Tab ───────────────────────────────────────────── */}
+        {!loading && releases.length > 0 && tab === 'stickers' && (
+          <div style={{ flex:1, overflowY:'auto', display:'flex', flexDirection:'column' }}>
+
+            <div className="no-print" style={{ background:T.surface, borderBottom:`1px solid ${T.border}`, padding:'0.5rem 1rem', display:'flex', alignItems:'center', gap:10, flexShrink:0, flexWrap:'wrap' }}>
+              <span style={{ fontSize:'0.7rem', fontWeight:700, color:T.muted, textTransform:'uppercase', letterSpacing:'0.07em' }}>Source</span>
+              <button onClick={() => setStickerSource('collection')} style={chip(stickerSource==='collection', T.accent)}>Full Collection ({releases.length})</button>
+              <button onClick={() => setStickerSource('set')} style={chip(stickerSource==='set', T.accent)}>Current Set ({djSet.length})</button>
+              <div style={{ flex:1 }} />
+              <span style={{ fontSize:'0.65rem', color:T.muted }}>Avery L7651 / 65-up</span>
+              <button onClick={() => window.print()} style={{ ...btn('primary'), padding:'5px 14px' }}>Print</button>
+            </div>
+
+            <div className="no-print" style={{ background:T.surface2, borderBottom:`1px solid ${T.border}`, padding:'0.4rem 1rem', display:'flex', gap:12, flexWrap:'wrap', flexShrink:0 }}>
+              {ROLE_IDS.map(id => (
+                <span key={id} style={{ display:'flex', alignItems:'center', gap:5, fontSize:'0.65rem' }}>
+                  <span style={{ width:10, height:10, borderRadius:2, background:ROLES[id].color, display:'inline-block' }} />
+                  {ROLES[id].label}
+                </span>
+              ))}
+              <span style={{ fontSize:'0.65rem', color:T.muted }}>Grey BPM/key = estimated &nbsp;·&nbsp; Coloured = verified</span>
+            </div>
+
+            <div id="sticker-print-area" style={{ padding:'1rem', display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(140px, 1fr))', gap:'6px' }}>
+              {(stickerSource === 'set' ? djSet : allTracks(releases)
+                .filter((t, i, arr) => arr.findIndex(x => x.releaseId === t.releaseId) === i)
+              ).map(t => {
+                const role = roleOf(t);
+                const bpmVerified = t.bpmSource === 'enriched' || t.bpmSource === 'manual';
+                const keyVerified = t.keySource === 'enriched' || t.keySource === 'manual';
+                return (
+                  <div key={t.id} style={{ border:`2px solid ${role.color}`, borderRadius:6, padding:'6px 8px', background:'#fff', display:'flex', flexDirection:'column', gap:2, pageBreakInside:'avoid', minHeight:78 }}>
+                    <div style={{ height:3, borderRadius:2, background:role.color, marginBottom:2 }} />
+                    <div style={{ fontSize:'0.55rem', color:'#999', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                      {t.releaseArtist}
+                    </div>
+                    <div style={{ fontSize:'0.62rem', fontWeight:700, lineHeight:1.25, overflow:'hidden', display:'-webkit-box', WebkitLineClamp:2 as unknown as number, WebkitBoxOrient:'vertical' as const }}>
+                      {t.releaseTitle}
+                    </div>
+                    <div style={{ marginTop:'auto', display:'flex', alignItems:'baseline', justifyContent:'space-between', paddingTop:4, borderTop:`1px solid ${T.border}` }}>
+                      <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-start' }}>
+                        <span style={{ fontSize:'0.45rem', color:T.muted, textTransform:'uppercase', letterSpacing:'0.05em' }}>BPM</span>
+                        <span style={{ fontSize:t.bpm?'1.05rem':'0.7rem', fontWeight:900, color:bpmVerified?role.color:'#ccc', lineHeight:1 }}>
+                          {t.bpm ?? '—'}
+                        </span>
+                      </div>
+                      <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end' }}>
+                        <span style={{ fontSize:'0.45rem', color:T.muted, textTransform:'uppercase', letterSpacing:'0.05em' }}>KEY</span>
+                        <span style={{ fontSize:t.key?'0.9rem':'0.7rem', fontWeight:900, color:keyVerified?role.color:'#ccc', lineHeight:1 }}>
+                          {t.key ?? '—'}
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ fontSize:'0.48rem', color:role.color, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', marginTop:2 }}>
+                      {role.emoji} {role.label}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <style>{`
+              @media print {
+                .no-print { display: none !important; }
+                body, html { margin: 0; background: white; }
+                #sticker-print-area {
+                  padding: 8mm !important;
+                  grid-template-columns: repeat(5, 1fr) !important;
+                  gap: 3px !important;
+                }
+              }
+            `}</style>
+          </div>
+        )}
+
       </main>
     </div>
   );
