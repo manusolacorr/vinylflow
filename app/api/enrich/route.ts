@@ -2,13 +2,9 @@
  * POST /api/enrich
  * Body: { artist, title, genres?, styles? }
  * Returns: { bpm, key, source, confidence, correction }
- *
- * Pipeline (optimised for Vercel Hobby 10s limit):
- * 1. Gemini Flash — answers from training data in ~1-3s
- * 2. validateBpmKey — genre-aware half-time/double-time correction
+ * Uses Gemini REST API directly (no SDK) with gemini-2.0-flash-lite
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { validateBpmKey } from '@/lib/validateBpmKey';
 
 export const dynamic     = 'force-dynamic';
@@ -56,8 +52,8 @@ function parseResponse(text: string): { bpm: number | null; key: string | null }
 async function lookupWithGemini(
   artist: string, title: string, genres: string[], styles: string[],
 ): Promise<{ bpm: number | null; key: string | null } | null> {
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) return null;
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return null;
 
   const genreHint = [...genres, ...styles].slice(0, 4).join(', ') || 'unknown';
   const prompt = `You are a DJ music database. Return the BPM and musical key for this track.
@@ -69,7 +65,7 @@ Genre: ${genreHint}
 Rules:
 - Use your knowledge of Beatport, Tunebat, Juno Download, DJ record pools
 - BPM must be the DJ-playable tempo, never half-time or double-time
-- Ranges: House 118-130, Deep House 118-126, Techno 128-145, Disco 108-128, Funk 85-115, Soul 70-110, Jazz 60-200
+- Ranges: House 118-130, Deep House 118-126, Techno 128-145, Disco 108-128, Funk 85-115, Soul 70-110
 - Convert key to Camelot notation (e.g. "11A", "8B")
 - If unknown, make a genre-appropriate estimate and set is_estimate true
 
@@ -77,13 +73,25 @@ Respond with ONLY this JSON, no other text:
 {"bpm": 120, "key": "8A", "is_estimate": false}`;
 
   try {
-    const genAI = new GoogleGenerativeAI(geminiKey);
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash-latest',
-      generationConfig: { maxOutputTokens: 80, temperature: 0.1 },
-    });
-    const result = await model.generateContent(prompt);
-    return parseResponse(result.response.text());
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { maxOutputTokens: 80, temperature: 0.1 },
+        }),
+        signal: AbortSignal.timeout(8000),
+      }
+    );
+    if (!res.ok) {
+      console.error('[gemini]', res.status, await res.text());
+      return null;
+    }
+    const data = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    return parseResponse(text);
   } catch (e) {
     console.error('[gemini]', e);
     return null;
