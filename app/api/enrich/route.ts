@@ -79,7 +79,7 @@ Respond with ONLY this JSON, no other text:
   try {
     const genAI = new GoogleGenerativeAI(geminiKey);
     const model = genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-1.5-flash',
       generationConfig: { maxOutputTokens: 80, temperature: 0.1 },
     });
     const result = await model.generateContent(prompt);
