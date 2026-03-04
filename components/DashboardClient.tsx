@@ -65,18 +65,40 @@ function allTracks(releases: Release[]): Track[] { return releases.flatMap(r => 
 const PAGE = 30;
 const THEMES = {
   light: {
-    bg: '#f5f4f0', surface: '#ffffff', surface2: '#efede8', surface3: '#e8e5df',
-    border: '#d8d5ce', text: '#18170f', muted: '#7a7670',
-    accent: '#9a6c2e', accent2: '#5a4faa', green: '#2a7a48', red: '#b83232',
-    shadow: '0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04)',
-    shadowMd: '0 2px 8px rgba(0,0,0,0.10), 0 8px 24px rgba(0,0,0,0.06)',
+    bg: '#f0ede6',
+    surface: '#faf9f7',
+    surface2: '#f0ede6',
+    surface3: '#e6e2d9',
+    border: '#d9d4c9',
+    text: '#0f0e0a',
+    muted: '#7a7568',
+    accent: '#b07d2a',
+    accentFg: '#ffffff',
+    accentGlow: 'rgba(176,125,42,0.15)',
+    accent2: '#4a43a0',
+    green: '#1e6e3e',
+    red: '#a82828',
+    shadow: '0 1px 2px rgba(0,0,0,0.06), 0 3px 10px rgba(0,0,0,0.04)',
+    shadowMd: '0 4px 16px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.05)',
+    shadowLg: '0 8px 32px rgba(0,0,0,0.12)',
   },
   dark: {
-    bg: '#141417', surface: '#1e1e22', surface2: '#252529', surface3: '#2c2c32',
-    border: '#35353d', text: '#eeedf0', muted: '#8a8a98',
-    accent: '#c8952e', accent2: '#7b6fd4', green: '#3fb06a', red: '#e05555',
-    shadow: '0 1px 3px rgba(0,0,0,0.4), 0 4px 12px rgba(0,0,0,0.3)',
-    shadowMd: '0 2px 8px rgba(0,0,0,0.5), 0 8px 24px rgba(0,0,0,0.4)',
+    bg: '#09090b',
+    surface: '#111113',
+    surface2: '#18181b',
+    surface3: '#1e1e22',
+    border: '#27272a',
+    text: '#fafafa',
+    muted: '#71717a',
+    accent: '#d4a032',
+    accentFg: '#000000',
+    accentGlow: 'rgba(212,160,50,0.12)',
+    accent2: '#8b80e8',
+    green: '#4ade80',
+    red: '#f87171',
+    shadow: '0 1px 2px rgba(0,0,0,0.6), 0 3px 10px rgba(0,0,0,0.4)',
+    shadowMd: '0 4px 16px rgba(0,0,0,0.7), 0 1px 3px rgba(0,0,0,0.5)',
+    shadowLg: '0 8px 32px rgba(0,0,0,0.8)',
   },
 };
 type ThemeKey = keyof typeof THEMES;
@@ -94,7 +116,7 @@ export default function DashboardClient({ user }: { user: User }) {
   });
   const T = THEMES[themeKey];
   const chip = (active: boolean, color: string): React.CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', border: `1px solid ${active ? color : T.border}`, background: active ? color : T.surface, color: active ? '#fff' : T.text, whiteSpace: 'nowrap', transition: 'all 0.15s' });
-  const btn = (v: 'primary' | 'secondary' | 'ghost' = 'secondary'): React.CSSProperties => ({ padding: '5px 12px', borderRadius: 7, fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', border: v === 'ghost' ? 'none' : `1px solid ${T.border}`, background: v === 'primary' ? T.accent : v === 'ghost' ? 'transparent' : T.surface, color: v === 'primary' ? '#fff' : T.text, transition: 'all 0.15s' });
+  const btn = (v: 'primary' | 'secondary' | 'ghost' = 'secondary'): React.CSSProperties => ({ padding: '5px 14px', borderRadius: 8, fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', letterSpacing: '0.01em', border: v === 'ghost' ? 'none' : v === 'primary' ? 'none' : `1px solid ${T.border}`, background: v === 'primary' ? T.accent : v === 'ghost' ? 'transparent' : T.surface2, color: v === 'primary' ? T.accentFg : T.text, transition: 'opacity 0.15s, transform 0.1s', boxShadow: v === 'primary' ? `0 0 0 1px ${T.accent}, ${T.shadow}` : 'none' });
 
   const [releases, setReleases] = useState<Release[]>([]);
   const [loading, setLoading] = useState(false);
@@ -388,23 +410,25 @@ export default function DashboardClient({ user }: { user: User }) {
   const totalTrackCount = allTracks(releases).length;
 
   return (
-    <div style={{ height:'100vh', display:'flex', flexDirection:'column', background:T.bg, fontFamily:"'DM Sans', system-ui, sans-serif", transition:'background 0.2s, color 0.2s' }}>
+    <div style={{ height:'100vh', display:'flex', flexDirection:'column', background:T.bg, fontFamily:"'Inter', system-ui, -apple-system, sans-serif", transition:'background 0.2s, color 0.2s' }}>
       {/* Global styles */}
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
-        * { box-sizing: border-box; }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: ${T.surface2}; }
-        ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 3px; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body { color: ${T.text}; }
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: ${T.muted}; }
-        input, button { font-family: inherit; }
-        a { text-decoration: none; }
+        input, button, select { font-family: inherit; }
+        a { text-decoration: none; color: inherit; }
+        button:focus-visible { outline: 2px solid ${T.accent}; outline-offset: 2px; }
       `}</style>
 
       {/* Header */}
-      <header style={{ background:T.surface, borderBottom:`1px solid ${T.border}`, height:52, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 1.25rem', flexShrink:0, boxShadow: T.shadow }}>
+      <header style={{ background:T.surface, borderBottom:`1px solid ${T.border}`, height:54, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 1.5rem', flexShrink:0, boxShadow:T.shadow }}>
         <div style={{ display:'flex', alignItems:'center', gap:14 }}>
-          <span style={{ fontSize:'1.05rem', fontWeight:700, color:T.accent, letterSpacing:'-0.02em' }}>vinyl.flow</span>
+          <span style={{ fontSize:'1rem', fontWeight:700, color:T.accent, letterSpacing:'-0.03em', fontVariantNumeric:'tabular-nums' }}>vinyl<span style={{color:T.muted, fontWeight:300}}>.</span>flow</span>
           {releases.length > 0 && (['library','set','analysis','stickers'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)} style={{ ...btn(tab===t?'primary':'ghost'), padding:'4px 12px', fontSize:'0.7rem', borderRadius: 8, letterSpacing: '-0.01em' }}>
               {t==='library'?`Library (${filteredTracks.length})`:t==='set'?`Set (${djSet.length})`:t==='analysis'?'Analysis':'\uD83C\uDFF7 Stickers'}
@@ -427,15 +451,15 @@ export default function DashboardClient({ user }: { user: User }) {
           )}
           {enriching && (
             <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:'0.7rem', color:T.muted }}>
-              <div style={{ width:80, height:4, background:T.border, borderRadius:2 }}>
+              <div style={{ width:90, height:3, background:T.surface3, borderRadius:2 }}>
                 <div style={{ width:`${enrichProgress}%`, height:'100%', background:T.accent, borderRadius:2, transition:'width 0.3s' }} />
               </div>
               {enrichProgress}%
             </div>
           )}
           {user.avatar_url && <img src={user.avatar_url} alt="" style={{ width:24, height:24, borderRadius:'50%' }} />}
-          <span style={{ fontSize:'0.75rem' }}>{user.username}</span>
-          <button onClick={toggleTheme} title={themeKey === 'light' ? 'Switch to dark mode' : 'Switch to light mode'} style={{ background:'none', border:`1px solid ${T.border}`, borderRadius:7, cursor:'pointer', padding:'3px 8px', color:T.muted, fontSize:'0.85rem', lineHeight:1, transition:'all 0.15s' }}>
+          <span style={{ fontSize:'0.72rem', fontWeight:500, color:T.text, letterSpacing:'0.01em' }}>{user.username}</span>
+          <button onClick={toggleTheme} title={themeKey === 'light' ? 'Dark mode' : 'Light mode'} style={{ background:T.surface2, border:`1px solid ${T.border}`, borderRadius:8, cursor:'pointer', padding:'4px 10px', color:T.muted, fontSize:'0.8rem', lineHeight:1.2, transition:'all 0.15s', fontWeight:500 }}>
             {themeKey === 'light' ? '🌙' : '☀️'}
           </button>
           <a href="/api/auth/logout" style={{ fontSize:'0.7rem', color:T.muted, fontWeight:500 }}>Log out</a>
@@ -467,7 +491,7 @@ export default function DashboardClient({ user }: { user: User }) {
         {/* Library */}
         {!loading && releases.length > 0 && tab === 'library' && (
           <div style={{ flex:1, overflow:'hidden', display:'flex', flexDirection:'column' }}>
-            <div style={{ background:T.surface, borderBottom:`1px solid ${T.border}`, padding:'0.5rem 1rem', display:'flex', alignItems:'center', gap:8, flexShrink:0, flexWrap:'wrap' }}>
+            <div style={{ background:T.surface, borderBottom:`1px solid ${T.border}`, padding:'0.6rem 1.5rem', display:'flex', alignItems:'center', gap:8, flexShrink:0, flexWrap:'wrap' }}>
               <button onClick={() => setFilterOpen(o => !o)} style={{ ...btn('ghost'), fontSize:'0.7rem', color:T.muted, padding:'2px 6px' }}>{filterOpen?'▲':'▼'} FILTERS</button>
               <div style={{ display:'flex', gap:4, flexWrap:'wrap', flex:1 }}>
                 {activePills.slice(0,5).map((p,i) => <span key={i} style={{ ...chip(true,p.color), fontSize:'0.65rem', padding:'2px 7px' }}>{p.label}</span>)}
@@ -507,22 +531,23 @@ export default function DashboardClient({ user }: { user: User }) {
                 : pagedTracks.map(t => {
                     const role = roleOf(t); const added = inSet(t.id);
                     return (
-                      <div key={t.id} style={{ marginBottom:2 }}>
-                        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 8px', borderRadius: analysingId === t.id ? '9px 9px 0 0' : 9, background:T.surface, border:`1px solid ${T.border}`, borderBottom: analysingId === t.id ? 'none' : `1px solid ${T.border}`, boxShadow: T.shadow, transition:'box-shadow 0.15s' }}>
-                          <div style={{ width:8, height:8, borderRadius:'50%', background:role.color, flexShrink:0 }} title={role.label} />
+                      <div key={t.id} style={{ marginBottom:3 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px 8px 0', borderRadius: analysingId === t.id ? '10px 10px 0 0' : 10, background:T.surface, border:`1px solid ${T.border}`, borderLeft:`3px solid ${role.color}`, borderBottom: analysingId === t.id ? 'none' : `1px solid ${T.border}`, boxShadow: T.shadow, transition:'box-shadow 0.15s', overflow:'hidden' }}>
                           {t.thumb
-                            ? <img src={t.thumb} alt="" style={{ width:28, height:28, borderRadius:4, objectFit:'cover', flexShrink:0 }} />
-                            : <div style={{ width:28, height:28, borderRadius:4, background:T.surface2, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.9rem', flexShrink:0 }}>{visualCue(t.releaseId)}</div>
+                            ? <img src={t.thumb} alt="" style={{ width:36, height:36, objectFit:'cover', flexShrink:0, marginLeft:10 }} />
+                            : <div style={{ width:36, height:36, background:T.surface2, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem', flexShrink:0, marginLeft:10 }}>{visualCue(t.releaseId)}</div>
                           }
                           <div style={{ flex:1, minWidth:0 }}>
-                            <div style={{ fontSize:'0.78rem', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.title}</div>
-                            <div style={{ fontSize:'0.65rem', color:T.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.trackArtist} · {t.pos}{t.year ? ` · ${t.year}` : ''}</div>
+                            <div style={{ fontSize:'0.78rem', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', color:T.text }}>{t.title}</div>
+                            <div style={{ fontSize:'0.63rem', color:T.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:1 }}>{t.trackArtist || t.releaseArtist} · <span style={{ fontFamily:"'JetBrains Mono', monospace", fontSize:'0.6rem' }}>{t.pos}</span>{t.year ? ` · ${t.year}` : ''}</div>
                           </div>
-                          {t.key && <span style={{ fontSize:'0.65rem', fontWeight:700, color: t.keySource==='enriched' ? T.green : T.accent, flexShrink:0 }}>{t.key}</span>}
-                          {t.bpm && <span style={{ fontSize:'0.65rem', color: t.bpmSource==='enriched' ? T.green : T.muted, flexShrink:0 }}>{t.bpm}</span>}
-                          <button onClick={() => setAnalysingId(analysingId === t.id ? null : t.id)} title="Analyse via mic or file" style={{ ...btn('ghost'), padding:'2px 6px', fontSize:'0.75rem', color: t.bpmSource==='enriched' ? T.green : T.muted }}>🎵</button>
-                          <button onClick={() => editingId === t.id ? setEditingId(null) : openEdit(t)} title="Edit BPM/Key manually" style={{ ...btn('ghost'), padding:'2px 6px', fontSize:'0.7rem', color: t.bpmSource==='manual' ? T.accent : T.muted }}>✏</button>
-                          <button onClick={() => added?removeFromSet(t.id):addToSet(t)} style={{ ...btn(added?'secondary':'primary'), padding:'2px 8px', fontSize:'0.7rem', background:added?T.surface2:T.accent, color:added?T.muted:'#fff' }}>{added?'✓':'+'}</button>
+                          <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
+                            {t.key && <span style={{ fontSize:'0.68rem', fontWeight:700, color: t.keySource==='enriched'||t.keySource==='manual' ? T.accent : T.muted, fontFamily:"'JetBrains Mono', monospace", background:T.accentGlow, padding:'1px 5px', borderRadius:4 }}>{t.key}</span>}
+                            {t.bpm && <span style={{ fontSize:'0.72rem', fontWeight:600, color: t.bpmSource==='enriched'||t.bpmSource==='manual' ? T.text : T.muted, fontFamily:"'JetBrains Mono', monospace", minWidth:28, textAlign:'right' }}>{t.bpm}</span>}
+                            <button onClick={() => setAnalysingId(analysingId === t.id ? null : t.id)} title="Analyse audio" style={{ ...btn('ghost'), padding:'3px 7px', fontSize:'0.72rem', color: t.bpmSource==='enriched' ? T.green : T.muted }}>🎵</button>
+                            <button onClick={() => editingId === t.id ? setEditingId(null) : openEdit(t)} title="Edit manually" style={{ ...btn('ghost'), padding:'3px 7px', fontSize:'0.68rem', color: t.bpmSource==='manual'||t.keySource==='manual' ? T.accent : T.muted }}>✏</button>
+                            <button onClick={() => added?removeFromSet(t.id):addToSet(t)} style={{ padding:'4px 10px', borderRadius:7, fontSize:'0.7rem', fontWeight:700, cursor:'pointer', border:'none', background:added?T.surface3:T.accent, color:added?T.muted:T.accentFg, transition:'all 0.15s', letterSpacing:'0.02em' }}>{added?'✓':'+'}</button>
+                          </div>
                         </div>
                         {analysingId === t.id && (
                           <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderTop:'none', borderRadius:'0 0 7px 7px', padding:'6px 10px 8px' }}>
