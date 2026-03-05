@@ -10,6 +10,7 @@ import {
   engine1BuildSet, engine2SortSet, setSuggestions,
 } from '@/lib/vinylflow';
 import type { Track, Release } from '@/lib/vinylflow';
+import { enrichTrackClient } from '@/lib/clientEnrich';
 
 interface User { id: number; username: string; avatar_url: string; }
 interface CollectionPage {
@@ -355,58 +356,64 @@ export default function DashboardClient({ user }: { user: User }) {
     setReleases([...workingReleases]);
     setEnrichProgress(40);
 
-    const allT = workingReleases.flatMap(r => r.tracks);
+    const allT = workingReleases.flatMap(r => r.tracks)
+      .filter(t => t.bpmSource !== 'enriched' || t.keySource !== 'enriched');
     const total2 = allT.length;
-    const trackMap: Record<string, { bpm: number | null; key: string | null }> = {};
-    const BATCH = 5;
+    const BATCH = 3;
 
     for (let i = 0; i < allT.length; i += BATCH) {
       const batch = allT.slice(i, i + BATCH);
       setEnrichMsg(`BPM/Key: ${Math.min(i+BATCH, total2)}/${total2} tracks...`);
       setEnrichProgress(40 + Math.round((i / total2) * 60));
 
-      await Promise.all(batch.map(async t => {
-        try {
-          const res = await fetch('/api/enrich', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ artist: t.trackArtist, title: t.title, genres: t.genres || [], styles: t.styles || [], catno: t.catno || '' }),
-          });
-          if (res.ok) {
-            const data = await res.json();
-            if (data.bpm || data.key) trackMap[t.id] = { bpm: data.bpm, key: data.key };
-            // If shop found an audio snippet but no key yet, analyse client-side
-            if (data.audioUrl && !data.key) {
-              analyseSnippetKey(data.audioUrl).then(key => {
-                if (key) {
-                  setReleases(prev => prev.map(r => ({ ...r, tracks: r.tracks.map(tr =>
-                    tr.id === t.id ? { ...tr, key, keySource: 'enriched' as const } : tr
-                  )})));
-                  saveTrackOverride({ id: t.id, bpm: data.bpm, key, bpmSource: 'enriched', keySource: 'enriched' });
-                }
-              }).catch(() => {});
-            }
-          }
-        } catch { /* skip */ }
-      }));
+      const results = await Promise.all(batch.map(t =>
+        enrichTrackClient({
+          id: t.id,
+          trackArtist: t.trackArtist,
+          releaseArtist: t.releaseArtist,
+          title: t.title,
+          releaseTitle: t.releaseTitle,
+          label: t.label || '',
+          catno: t.catno || '',
+          bpmSource: t.bpmSource,
+          keySource: t.keySource,
+          genres: t.genres || [],
+          styles: t.styles || [],
+        }).catch(() => null)
+      ));
 
-      if (Object.keys(trackMap).length > 0) {
+      const hits = results.filter(Boolean) as NonNullable<typeof results[0]>[];
+      if (hits.length > 0) {
+        const trackMap: Record<string, typeof hits[0]> = {};
+        for (const h of hits) trackMap[h.id] = h;
+
         workingReleases = workingReleases.map(r => ({
           ...r,
           tracks: r.tracks.map(t => {
             const e = trackMap[t.id];
             if (!e) return t;
-            return { ...t, bpm: e.bpm ?? t.bpm, bpmSource: e.bpm ? 'enriched' as const : t.bpmSource, key: e.key ?? t.key, keySource: e.key ? 'enriched' as const : t.keySource };
+            return {
+              ...t,
+              bpm:        e.bpm  ?? t.bpm,
+              bpmSource:  e.bpm  ? 'enriched' as const : t.bpmSource,
+              key:        e.key  ?? t.key,
+              keySource:  e.key  ? 'enriched' as const : t.keySource,
+              genres:     e.genres?.length ? [...new Set([...(t.genres||[]), ...e.genres])] : t.genres,
+              styles:     e.styles?.length ? [...new Set([...(t.styles||[]), ...e.styles])] : t.styles,
+            };
           }),
         }));
         setReleases([...workingReleases]);
-        setDjSet(prev => prev.map(t => { const e = trackMap[t.id]; if (!e) return t; return { ...t, bpm: e.bpm ?? t.bpm, bpmSource: e.bpm ? 'enriched' as const : t.bpmSource, key: e.key ?? t.key, keySource: e.key ? 'enriched' as const : t.keySource }; }));
-        // Persist enriched data to IndexedDB
-        const newEntries = Object.entries(trackMap);
-        await Promise.all(newEntries.map(([id, e]) => saveTrackOverride({ id, bpm: e.bpm, key: e.key, bpmSource: 'enriched', keySource: 'enriched' })));
+        setDjSet(prev => prev.map(t => {
+          const e = trackMap[t.id];
+          if (!e) return t;
+          return { ...t, bpm: e.bpm ?? t.bpm, bpmSource: e.bpm ? 'enriched' as const : t.bpmSource, key: e.key ?? t.key, keySource: e.key ? 'enriched' as const : t.keySource };
+        }));
+        await Promise.all(hits.map(e => saveTrackOverride({ id: e.id, bpm: e.bpm, key: e.key, bpmSource: 'enriched', keySource: 'enriched' })));
         setSavedCount(await countOverrides());
       }
-      await new Promise(r => setTimeout(r, 400));
+      // Gentle rate limit between batches
+      if (i + BATCH < allT.length) await new Promise(r => setTimeout(r, 300));
     }
     setEnriching(false); setEnrichMsg(''); setEnrichProgress(0);
   }
