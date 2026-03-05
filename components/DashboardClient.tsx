@@ -2,7 +2,7 @@
 'use client';
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import EssentiaAnalyser from './EssentiaAnalyser';
-import { saveTrackOverride, loadAllOverrides, saveDjSet, loadDjSet, countOverrides, saveCollection, loadCollection as loadCollectionDB, mergeCollection } from '@/lib/db';
+import { saveTrackOverride, loadAllOverrides, saveDjSet, loadDjSet, countOverrides } from '@/lib/db';
 import {
   ROLES, ROLE_IDS, assignRole, roleOf,
   camCompat, bpmBridge, compatColor,
@@ -67,13 +67,6 @@ function allTracks(releases: Release[]): Track[] { return releases.flatMap(r => 
 
 const PAGE = 30;
 
-function timeSince(ts: number): string {
-  const s = Math.floor((Date.now() - ts) / 1000);
-  if (s < 60)   return 'just now';
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400)return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
-}
 // ── Exact Vercel/Geist design tokens ──────────────────────────────────────
 // Light: white base, #eaeaea borders, #666 muted, #0070f3 blue accent
 // Dark:  #1a1a1a base (soft grey, not black), #333 borders, #888 muted
@@ -181,9 +174,7 @@ export default function DashboardClient({ user }: { user: User }) {
   const [djSet, setDjSet] = useState<Track[]>([]);
   const [tab, setTab] = useState<'library' | 'set' | 'analysis' | 'stickers'>('library');
   const [stickerSource, setStickerSource] = useState<'collection' | 'set'>('collection');
-  const [syncedAt, setSyncedAt]           = useState<number | null>(null);
-  const [newCount, setNewCount]           = useState(0);
-  const [syncing, setSyncing]             = useState(false);
+
   const [page, setPage] = useState(1);
   const [analysingId, setAnalysingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -197,16 +188,6 @@ export default function DashboardClient({ user }: { user: User }) {
     // Restore DJ set
     loadDjSet().then(saved => { if (saved.length > 0) setDjSet(saved); });
 
-    // Restore collection from IndexedDB — instant load, no spinner
-    loadCollectionDB().then(cached => {
-      if (cached && cached.releases.length > 0) {
-        setReleases(flattenRaw(cached.releases as RawRelease[]));
-        setSyncedAt(cached.syncedAt);
-        setTab('library');
-        // Silently check if Discogs has new records
-        checkForNew();
-      }
-    });
     // Show how many overrides are cached
     countOverrides().then(n => setSavedCount(n));
   }, []);
@@ -333,87 +314,10 @@ export default function DashboardClient({ user }: { user: User }) {
         raw = [...raw, ...d.releases];
         await new Promise(res => setTimeout(res, 120));
       }
-      const now = Date.now();
-      await saveCollection(raw, now);
-      setSyncedAt(now);
       setReleases(flattenRaw(raw));
       setTab('library');
     } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Unknown error'); }
     finally { setLoading(false); setLoadMsg(''); }
-  }
-
-  // ── Incremental sync — only fetch new records added since last sync ────
-  async function syncCollection() {
-    if (syncing) return;
-    setSyncing(true); setEnrichMsg('');
-    try {
-      // Fetch page 1 sorted by most recently added
-      const res = await fetch('/api/collection?page=1&per_page=100&sort=added&sort_order=desc');
-      if (!res.ok) { if (res.status === 401) { window.location.href = '/'; return; } throw new Error(`HTTP ${res.status}`); }
-      const d: CollectionPage = await res.json();
-
-      // Get existing IDs for dedup
-      const existing = await loadCollectionDB();
-      const existingIds = new Set((existing?.releases ?? []).map((r: unknown) => (r as RawRelease).id));
-
-      // Collect only new releases — stop when we hit something we already have
-      const newReleases: RawRelease[] = [];
-      let foundExisting = false;
-      for (const r of d.releases) {
-        if (existingIds.has(r.id)) { foundExisting = true; break; }
-        newReleases.push(r);
-      }
-
-      // If first page had new items but didn't hit existing ones, fetch more pages
-      if (!foundExisting && newReleases.length > 0) {
-        const { pages } = d.pagination;
-        for (let p = 2; p <= pages && !foundExisting; p++) {
-          const rp = await fetch(`/api/collection?page=${p}&per_page=100&sort=added&sort_order=desc`);
-          if (!rp.ok) break;
-          const dp: CollectionPage = await rp.json();
-          for (const r of dp.releases) {
-            if (existingIds.has(r.id)) { foundExisting = true; break; }
-            newReleases.push(r);
-          }
-          await new Promise(res => setTimeout(res, 100));
-        }
-      }
-
-      if (newReleases.length > 0) {
-        const merged = await mergeCollection(newReleases);
-        if (merged) {
-          setSyncedAt(merged.syncedAt);
-          setReleases(flattenRaw(merged.releases as RawRelease[]));
-          setNewCount(0);
-          setEnrichMsg(`✓ ${newReleases.length} new record${newReleases.length > 1 ? 's' : ''} added`);
-          setTimeout(() => setEnrichMsg(''), 4000);
-        }
-      } else {
-        // No new records — just update sync timestamp
-        const now = Date.now();
-        if (existing) await saveCollection(existing.releases, now);
-        setSyncedAt(now);
-        setEnrichMsg('✓ Collection up to date');
-        setTimeout(() => setEnrichMsg(''), 3000);
-      }
-    } catch (e: unknown) {
-      setEnrichMsg(`Sync failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
-      setTimeout(() => setEnrichMsg(''), 4000);
-    } finally { setSyncing(false); }
-  }
-
-  // ── Check for new records (silent, no UI update) ───────────────────────
-  async function checkForNew() {
-    try {
-      const res = await fetch('/api/collection?page=1&per_page=10&sort=added&sort_order=desc');
-      if (!res.ok) return;
-      const d: CollectionPage = await res.json();
-      const existing = await loadCollectionDB();
-      if (!existing) return;
-      const existingIds = new Set(existing.releases.map((r: unknown) => (r as RawRelease).id));
-      const count = d.releases.filter((r: RawRelease) => !existingIds.has(r.id)).length;
-      if (count > 0) setNewCount(count);
-    } catch { /* silent */ }
   }
 
   async function expandTracklists() {
@@ -657,18 +561,6 @@ export default function DashboardClient({ user }: { user: User }) {
           )}
           {releases.length > 0 && (
             <button onClick={exportToExcel} style={{ ...btn(), display:'inline-flex', alignItems:'center', gap:5 }} title="Export collection and set to Excel">{Icon.download} Export</button>
-          )}
-          {releases.length > 0 && (
-            <button
-              onClick={syncCollection}
-              disabled={syncing}
-              title={syncedAt ? `Last synced ${new Date(syncedAt).toLocaleTimeString()}` : 'Sync collection with Discogs'}
-              style={{ ...btn(), display:'inline-flex', alignItems:'center', gap:5, opacity: syncing ? 0.6 : 1,
-                ...(newCount > 0 ? { borderColor: T.accent, color: T.accent } : {}) }}
-            >
-              {Icon.sync}
-              {syncing ? 'Syncing…' : newCount > 0 ? `Sync (${newCount} new)` : syncedAt ? `Synced ${timeSince(syncedAt)}` : 'Sync'}
-            </button>
           )}
           {releases.length > 0 && !enriching && (
             <button onClick={expandTracklists} style={{ ...btn(), fontSize:'0.7rem', color: enrichedCount > 0 ? T.muted : T.text }}>
