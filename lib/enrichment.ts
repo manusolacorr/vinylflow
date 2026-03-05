@@ -82,35 +82,44 @@ Respond ONLY with: {"bpm": 120}`;
   return parsed?.bpm ?? null;
 }
 
-// ── Pass 2: Key via Sonnet ────────────────────────────────────────────────
+// ── Pass 2: Key via Sonnet + web search ──────────────────────────────────
 async function getKey(artist: string, title: string, genres: string[], styles: string[], bpm: number | null, apiKey: string): Promise<string | null> {
   const genreHint = [...genres, ...styles].slice(0, 4).join(', ') || 'unknown';
   const bpmHint = bpm ? `BPM is ${bpm}. ` : '';
 
-  const prompt = `You are an expert DJ and music analyst with deep knowledge of electronic music, soul, funk, disco and jazz records.
+  const prompt = `Find the musical key for this track: "${artist} - ${title}" (${genreHint}). ${bpmHint}
 
-Identify the musical key of this specific track: "${artist} - ${title}"
-Genre: ${genreHint}
-${bpmHint}
-
-Think about:
-- This artist's known harmonic tendencies and style
-- The mood and energy suggested by the title and genre
-- What you know about this specific record from Beatport, Tunebat, or music databases
-
-IMPORTANT: Do NOT default to A minor / 8A. Only use 8A if you are genuinely confident the track is in A minor.
-The 24 possible Camelot values are equally likely — pick the one that is actually correct for this track.
+Search for it on Tunebat, Beatport, or any music database. Look for the exact Camelot key (e.g. 11A, 8B, 4A).
 
 Camelot reference:
 C maj=8B  Db maj=3B  D maj=10B  Eb maj=5B  E maj=12B  F maj=7B  Gb maj=2B  G maj=9B  Ab maj=4B  A maj=11B  Bb maj=6B  B maj=1B
 C min=5A  Db min=12A  D min=7A  Eb min=2A  E min=9A  F min=4A  Gb min=11A  G min=6A  Ab min=1A  A min=8A  Bb min=3A  B min=10A
 
-Respond ONLY with: {"key": "11A"}`;
+Respond ONLY with JSON: {"key": "11A"}`;
 
-  const text = await claudeRequest('claude-sonnet-4-6', prompt, 50, apiKey);
-  if (!text) return null;
-  const parsed = parseResponse(text);
-  return parsed?.key ?? null;
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1024,
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        messages: [{ role: 'user', content: prompt }],
+      }),
+      signal: AbortSignal.timeout(25000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    // Extract text from all content blocks (may include tool_use + text)
+    const text = (data?.content ?? [])
+      .filter((b: { type: string }) => b.type === 'text')
+      .map((b: { text: string }) => b.text)
+      .join('\n');
+    if (!text) return null;
+    const parsed = parseResponse(text);
+    return parsed?.key ?? null;
+  } catch { return null; }
 }
 
 // ── Main export ───────────────────────────────────────────────────────────
