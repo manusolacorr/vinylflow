@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { enrichTrack } from '@/lib/enrichment';
 export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
 export const maxDuration = 60;
 
 const TRACKS = [
@@ -29,5 +31,8 @@ export async function GET() {
     });
   }
   const passed = results.filter(r => r.pass).length;
-  return NextResponse.json({ score: `${passed}/${results.length}`, tracks: results });
+  return NextResponse.json(
+    { score: `${passed}/${results.length}`, tracks: results },
+    { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate', 'Pragma': 'no-cache' } }
+  );
 }
