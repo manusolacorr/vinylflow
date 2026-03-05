@@ -39,7 +39,7 @@ function makeTrack(
   releaseId: number, releaseTitle: string, releaseArtist: string,
   pos: string, title: string, duration: string, trackArtist: string,
   thumb: string | null, year: number, genres: string[], styles: string[],
-  bpm: number | null,
+  bpm: number | null, catno?: string,
 ): Track {
   return {
     id: `${releaseId}_${pos}`,
@@ -47,7 +47,7 @@ function makeTrack(
     bpm, bpmSource: bpm ? 'guessed' : null,
     key: null, keySource: null, roleOverride: null,
     releaseId, releaseTitle, releaseArtist,
-    thumb, year, genres, styles,
+    thumb, year, genres, styles, catno,
   };
 }
 
@@ -57,8 +57,8 @@ function flattenRaw(rawReleases: RawRelease[]): Release[] {
     const artist = (bi.artists || []).map((a: { name: string }) => a.name.replace(/\s*\(\d+\)$/, '')).join(', ') || 'Unknown';
     const label = (bi.labels || []).map((l: { name: string }) => l.name).join(', ') || '';
     const bpm = guessBPM(bi.genres || [], bi.styles || []);
-    const track = makeTrack(bi.id, bi.title, artist, 'A1', bi.title, '', artist, bi.thumb || null, bi.year || 0, bi.genres || [], bi.styles || [], bpm);
     const catno = (bi.labels || []).map((l: { catno: string }) => l.catno).filter(Boolean)[0] || '';
+    const track = makeTrack(bi.id, bi.title, artist, 'A1', bi.title, '', artist, bi.thumb || null, bi.year || 0, bi.genres || [], bi.styles || [], bpm, catno);
     return { id: bi.id, title: bi.title, artist, genres: bi.genres || [], styles: bi.styles || [], year: bi.year || 0, label, catno, thumb: bi.thumb || null, tracks: [track] };
   });
 }
@@ -343,6 +343,7 @@ export default function DashboardClient({ user }: { user: User }) {
                 detail.genres || workingReleases[i].genres,
                 detail.styles || workingReleases[i].styles,
                 detail.notesBpm || guessBPM(detail.genres || workingReleases[i].genres, detail.styles || workingReleases[i].styles),
+                workingReleases[i].catno,
               )),
             };
           }

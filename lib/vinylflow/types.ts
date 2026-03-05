@@ -33,6 +33,7 @@ export interface Track {
   year: number;
   genres: string[];
   styles: string[];
+  catno?: string;
   incomplete?: boolean;
 }
 
