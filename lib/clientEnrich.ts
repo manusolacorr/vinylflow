@@ -200,7 +200,7 @@ export interface TrackInput {
   releaseArtist: string;
   title:         string;
   releaseTitle:  string;
-  label:         string;
+  label?:        string;
   catno?:        string;
   bpmSource:     string | null;
   keySource:     string | null;
