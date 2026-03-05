@@ -6,8 +6,7 @@
  * Sonnet cost: ~$0.001 per track. 894 tracks ≈ $0.90 total.
  */
 import { validateBpmKey } from '@/lib/validateBpmKey';
-import { lookupDecksde, fetchAudioSnippet } from '@/lib/decksde';
-import { analyseAudio } from '@/lib/audioAnalyse';
+import { findSnippet } from '@/lib/snippetSources';
 
 const CAM_KEYS = ['1A','1B','2A','2B','3A','3B','4A','4B','5A','5B','6A','6B',
                   '7A','7B','8A','8B','9A','9B','10A','10B','11A','11B','12A','12B'];
@@ -127,6 +126,7 @@ export async function enrichTrack(
   title: string,
   genres: string[],
   styles: string[],
+  catno?: string,
 ): Promise<EnrichResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return { bpm: null, key: null, source: 'no_api_key', confidence: 'low', correction: null };
@@ -137,35 +137,11 @@ export async function enrichTrack(
   let source = 'claude';
 
   try {
-    const decks = await lookupDecksde(artist, title);
-    if (decks.found) {
-      bpmRaw = decks.bpm;
-      source = 'decks.de';
-
-      // Try to get key from audio snippet
-      if (decks.audioUrl) {
-        const audioBuffer = await fetchAudioSnippet(decks.audioUrl);
-        if (audioBuffer) {
-          // Decode raw PCM — for MP3 we need a decoder. Use a simple
-          // float32 extraction from WAV-like headers if available,
-          // otherwise fall through to Claude for key.
-          const bytes = new Uint8Array(audioBuffer);
-          // Check for WAV header (RIFF)
-          if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) {
-            // Parse WAV: sample rate at offset 24, data starts after 44 bytes
-            const sampleRate = bytes[24] | (bytes[25] << 8) | (bytes[26] << 16) | (bytes[27] << 24);
-            const dataStart = 44;
-            const samples = new Float32Array((audioBuffer.byteLength - dataStart) / 2);
-            const view = new DataView(audioBuffer);
-            for (let i = 0; i < samples.length; i++) {
-              samples[i] = view.getInt16(dataStart + i * 2, true) / 32768;
-            }
-            const result = analyseAudio(samples, sampleRate);
-            if (result.key) keyRaw = result.key;
-            if (result.bpm && !bpmRaw) bpmRaw = result.bpm;
-          }
-        }
-      }
+    const shop = await findSnippet(artist, title, catno);
+    if (shop.found) {
+      if (shop.bpm) { bpmRaw = shop.bpm; source = shop.source ?? 'shop'; }
+      // audioUrl is returned to the client for browser-side key analysis
+      // Server-side key analysis not possible without MP3 decoder
     }
   } catch { /* fall through to Claude */ }
 
