@@ -169,7 +169,8 @@ export default function DashboardClient({ user }: { user: User }) {
   const [enrichProgress, setEnrichProgress] = useState(0);
   const [search, setSearch] = useState('');
   const [roleFilters, setRoleFilters] = useState<Set<string>>(new Set());
-  const [genreFilters, setGenreFilters] = useState<Set<string>>(new Set());
+  const [genreFilters,  setGenreFilters]  = useState<Set<string>>(new Set());
+  const [styleFilters,  setStyleFilters]  = useState<Set<string>>(new Set());
   const [decadeFilters, setDecadeFilters] = useState<Set<string>>(new Set());
   const [filterOpen, setFilterOpen] = useState(false);
   const [djSet, setDjSet] = useState<Track[]>([]);
@@ -220,6 +221,7 @@ export default function DashboardClient({ user }: { user: User }) {
   }, [djSet]);
 
   const allGenres  = useMemo(() => Array.from(new Set(releases.flatMap(r => r.genres))).sort(), [releases]);
+  const allStyles  = useMemo(() => Array.from(new Set(allTracks(releases).flatMap(t => t.styles || []))).sort(), [releases]);
   const allDecades = useMemo(() => Array.from(new Set(releases.map(r => decadeOf(r.year)))).sort(), [releases]);
 
   const filteredTracks = useMemo(() => {
@@ -227,6 +229,7 @@ export default function DashboardClient({ user }: { user: User }) {
     return allTracks(releases).filter(t => {
       if (roleFilters.size > 0 && !roleFilters.has(assignRole(t))) return false;
       if (genreFilters.size > 0 && !Array.from(genreFilters).some(g => (t.genres||[]).includes(g))) return false;
+      if (styleFilters.size > 0 && !Array.from(styleFilters).some(s => (t.styles||[]).includes(s))) return false;
       if (decadeFilters.size > 0 && !decadeFilters.has(decadeOf(t.year))) return false;
       if (!q) return true;
       return [t.title, t.trackArtist, t.releaseTitle, t.pos, t.key||'', String(t.bpm||''), ...(t.genres||[]), ...(t.styles||[])].some(f => f && f.toLowerCase().includes(q));
@@ -526,6 +529,7 @@ export default function DashboardClient({ user }: { user: User }) {
   const activePills = [
     ...Array.from(roleFilters).map(id => ({ label: `${ROLES[id]?.emoji} ${ROLES[id]?.label}`, color: ROLES[id]?.color||T.accent })),
     ...Array.from(genreFilters).map(g => ({ label: g, color: T.accent })),
+    ...Array.from(styleFilters).map(s => ({ label: s, color: T.accent2 })),
     ...Array.from(decadeFilters).map(d => ({ label: d, color: '#555' })),
   ];
 
@@ -644,6 +648,13 @@ export default function DashboardClient({ user }: { user: User }) {
                     <span style={{ fontSize:'0.6rem', color:T.muted, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em' }}>Genre</span>
                     <button onClick={() => setGenreFilters(new Set())} style={chip(genreFilters.size===0, T.accent)}>All</button>
                     {allGenres.slice(0,14).map(g => <button key={g} onClick={() => toggleFilter(setGenreFilters, g)} style={chip(genreFilters.has(g), T.accent)}>{g}</button>)}
+                  </div>
+                )}
+                {allStyles.length > 0 && (
+                  <div style={{ display:'flex', gap:4, alignItems:'center', flexWrap:'wrap' }}>
+                    <span style={{ fontSize:'0.6rem', color:T.muted, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em' }}>Style</span>
+                    <button onClick={() => setStyleFilters(new Set())} style={chip(styleFilters.size===0, T.accent2)}>All</button>
+                    {allStyles.slice(0,16).map(s => <button key={s} onClick={() => toggleFilter(setStyleFilters, s)} style={chip(styleFilters.has(s), T.accent2)}>{s}</button>)}
                   </div>
                 )}
                 {allDecades.length > 0 && (
