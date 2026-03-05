@@ -2,7 +2,7 @@
 'use client';
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import EssentiaAnalyser from './EssentiaAnalyser';
-import { saveTrackOverride, loadAllOverrides, saveDjSet, loadDjSet, countOverrides } from '@/lib/db';
+import { saveTrackOverride, loadAllOverrides, saveDjSet, loadDjSet, countOverrides, saveCollection, loadCollection as loadCollectionDB, mergeCollection } from '@/lib/db';
 import {
   ROLES, ROLE_IDS, assignRole, roleOf,
   camCompat, bpmBridge, compatColor,
@@ -18,12 +18,14 @@ interface CollectionPage {
 }
 interface RawRelease {
   id: number;
+  date_added: string;
   basic_information: {
     id: number; title: string;
     artists: { name: string }[];
     genres: string[]; styles: string[];
     year: number; thumb: string;
-    labels: { name: string }[];
+    labels: { name: string; catno: string }[];
+    formats: { name: string; qty: string }[];
   };
 }
 interface ReleaseDetail {
@@ -56,13 +58,22 @@ function flattenRaw(rawReleases: RawRelease[]): Release[] {
     const label = (bi.labels || []).map((l: { name: string }) => l.name).join(', ') || '';
     const bpm = guessBPM(bi.genres || [], bi.styles || []);
     const track = makeTrack(bi.id, bi.title, artist, 'A1', bi.title, '', artist, bi.thumb || null, bi.year || 0, bi.genres || [], bi.styles || [], bpm);
-    return { id: bi.id, title: bi.title, artist, genres: bi.genres || [], styles: bi.styles || [], year: bi.year || 0, label, thumb: bi.thumb || null, tracks: [track] };
+    const catno = (bi.labels || []).map((l: { catno: string }) => l.catno).filter(Boolean)[0] || '';
+    return { id: bi.id, title: bi.title, artist, genres: bi.genres || [], styles: bi.styles || [], year: bi.year || 0, label, catno, thumb: bi.thumb || null, tracks: [track] };
   });
 }
 
 function allTracks(releases: Release[]): Track[] { return releases.flatMap(r => r.tracks); }
 
 const PAGE = 30;
+
+function timeSince(ts: number): string {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60)   return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400)return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
 // ── Exact Vercel/Geist design tokens ──────────────────────────────────────
 // Light: white base, #eaeaea borders, #666 muted, #0070f3 blue accent
 // Dark:  #1a1a1a base (soft grey, not black), #333 borders, #888 muted
@@ -137,6 +148,7 @@ const Icon = {
   chevronR: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>,
   x:        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
   logout:   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
+  sync:     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>,
 };
 
 export default function DashboardClient({ user }: { user: User }) {
@@ -169,6 +181,9 @@ export default function DashboardClient({ user }: { user: User }) {
   const [djSet, setDjSet] = useState<Track[]>([]);
   const [tab, setTab] = useState<'library' | 'set' | 'analysis' | 'stickers'>('library');
   const [stickerSource, setStickerSource] = useState<'collection' | 'set'>('collection');
+  const [syncedAt, setSyncedAt]           = useState<number | null>(null);
+  const [newCount, setNewCount]           = useState(0);
+  const [syncing, setSyncing]             = useState(false);
   const [page, setPage] = useState(1);
   const [analysingId, setAnalysingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -181,6 +196,17 @@ export default function DashboardClient({ user }: { user: User }) {
   useEffect(() => {
     // Restore DJ set
     loadDjSet().then(saved => { if (saved.length > 0) setDjSet(saved); });
+
+    // Restore collection from IndexedDB — instant load, no spinner
+    loadCollectionDB().then(cached => {
+      if (cached && cached.releases.length > 0) {
+        setReleases(flattenRaw(cached.releases as RawRelease[]));
+        setSyncedAt(cached.syncedAt);
+        setTab('library');
+        // Silently check if Discogs has new records
+        checkForNew();
+      }
+    });
     // Show how many overrides are cached
     countOverrides().then(n => setSavedCount(n));
   }, []);
@@ -229,26 +255,165 @@ export default function DashboardClient({ user }: { user: User }) {
   const totalPages  = Math.ceil(filteredTracks.length / PAGE);
   const inSet = useCallback((id: string) => djSet.some(t => t.id === id), [djSet]);
 
+  // ── Full load (first time or forced refresh) ──────────────────────────
+  // ── Client-side key analysis from a remote audio snippet URL ─────────────
+  async function analyseSnippetKey(audioUrl: string): Promise<string | null> {
+    try {
+      const res = await fetch(audioUrl);
+      if (!res.ok) return null;
+      const arrayBuffer = await res.arrayBuffer();
+      const audioCtx = new AudioContext();
+      const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+      const samples = audioBuffer.getChannelData(0); // mono
+      const sr = audioBuffer.sampleRate;
+
+      // Chromagram key detection (Krumhansl-Schmuckler)
+      const chroma = new Array(12).fill(0);
+      const windowSize = 4096, hopSize = 2048;
+      const numWindows = Math.floor((samples.length - windowSize) / hopSize);
+      for (let w = 0; w < numWindows; w++) {
+        const offset = w * hopSize;
+        for (let k = 1; k < windowSize / 2; k++) {
+          let re = 0, im = 0;
+          for (let n = 0; n < windowSize; n++) {
+            const angle = (2 * Math.PI * k * n) / windowSize;
+            re += samples[offset + n] * Math.cos(angle);
+            im -= samples[offset + n] * Math.sin(angle);
+          }
+          const mag = Math.sqrt(re * re + im * im);
+          const freq = (k * sr) / windowSize;
+          if (freq < 80 || freq > 2000) continue;
+          const midi = Math.round(12 * Math.log2(freq / 440) + 69);
+          chroma[((midi % 12) + 12) % 12] += mag;
+        }
+      }
+
+      const MAJOR = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
+      const MINOR = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
+      const NOTES = ['C','C#','D','Eb','E','F','F#','G','Ab','A','Bb','B'];
+      const CAM: Record<string,string> = {
+        'C major':'8B','C minor':'5A','C# major':'3B','C# minor':'12A',
+        'D major':'10B','D minor':'7A','Eb major':'5B','Eb minor':'2A',
+        'E major':'12B','E minor':'9A','F major':'7B','F minor':'4A',
+        'F# major':'2B','F# minor':'11A','G major':'9B','G minor':'6A',
+        'Ab major':'4B','Ab minor':'1A','A major':'11B','A minor':'8A',
+        'Bb major':'6B','Bb minor':'3A','B major':'1B','B minor':'10A',
+      };
+
+      const sum = chroma.reduce((a,b)=>a+b,0)||1;
+      const norm = chroma.map(v=>v/sum);
+      let bestScore = -Infinity, bestKey = 'C major';
+      for (let root = 0; root < 12; root++) {
+        let maj = 0, min = 0;
+        for (let i = 0; i < 12; i++) {
+          maj += norm[(root+i)%12] * MAJOR[i];
+          min += norm[(root+i)%12] * MINOR[i];
+        }
+        if (maj > bestScore) { bestScore = maj; bestKey = `${NOTES[root]} major`; }
+        if (min > bestScore) { bestScore = min; bestKey = `${NOTES[root]} minor`; }
+      }
+      await audioCtx.close();
+      return CAM[bestKey] ?? null;
+    } catch { return null; }
+  }
+
   async function loadCollection() {
     setLoading(true); setError(''); setLoadMsg('Connecting to Discogs...');
     try {
       const res1 = await fetch('/api/collection?page=1&per_page=100');
-      if (!res1.ok) { if (res1.status === 401) { window.location.href = '/'; return; } throw new Error(`HTTP ${res1.status}`); }
+      if (!res1.ok) { if (res1.status === 401) { window.location.href = '/'; return; } throw new Error('HTTP ' + res1.status); }
       const d1: CollectionPage = await res1.json();
       const { pages } = d1.pagination;
-      let raw = [...d1.releases];
+      let raw: RawRelease[] = [...d1.releases];
       for (let p = 2; p <= pages; p++) {
-        setLoadMsg(`Loading page ${p} of ${pages}...`);
-        const r = await fetch(`/api/collection?page=${p}&per_page=100`);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        setLoadMsg('Loading page ' + p + ' of ' + pages + '...');
+        const r = await fetch('/api/collection?page=' + p + '&per_page=100');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
         const d: CollectionPage = await r.json();
         raw = [...raw, ...d.releases];
         await new Promise(res => setTimeout(res, 120));
       }
+      const now = Date.now();
+      await saveCollection(raw, now);
+      setSyncedAt(now);
       setReleases(flattenRaw(raw));
       setTab('library');
     } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Unknown error'); }
     finally { setLoading(false); setLoadMsg(''); }
+  }
+
+  // ── Incremental sync — only fetch new records added since last sync ────
+  async function syncCollection() {
+    if (syncing) return;
+    setSyncing(true); setEnrichMsg('');
+    try {
+      // Fetch page 1 sorted by most recently added
+      const res = await fetch('/api/collection?page=1&per_page=100&sort=added&sort_order=desc');
+      if (!res.ok) { if (res.status === 401) { window.location.href = '/'; return; } throw new Error(`HTTP ${res.status}`); }
+      const d: CollectionPage = await res.json();
+
+      // Get existing IDs for dedup
+      const existing = await loadCollectionDB();
+      const existingIds = new Set((existing?.releases ?? []).map((r: unknown) => (r as RawRelease).id));
+
+      // Collect only new releases — stop when we hit something we already have
+      const newReleases: RawRelease[] = [];
+      let foundExisting = false;
+      for (const r of d.releases) {
+        if (existingIds.has(r.id)) { foundExisting = true; break; }
+        newReleases.push(r);
+      }
+
+      // If first page had new items but didn't hit existing ones, fetch more pages
+      if (!foundExisting && newReleases.length > 0) {
+        const { pages } = d.pagination;
+        for (let p = 2; p <= pages && !foundExisting; p++) {
+          const rp = await fetch(`/api/collection?page=${p}&per_page=100&sort=added&sort_order=desc`);
+          if (!rp.ok) break;
+          const dp: CollectionPage = await rp.json();
+          for (const r of dp.releases) {
+            if (existingIds.has(r.id)) { foundExisting = true; break; }
+            newReleases.push(r);
+          }
+          await new Promise(res => setTimeout(res, 100));
+        }
+      }
+
+      if (newReleases.length > 0) {
+        const merged = await mergeCollection(newReleases);
+        if (merged) {
+          setSyncedAt(merged.syncedAt);
+          setReleases(flattenRaw(merged.releases as RawRelease[]));
+          setNewCount(0);
+          setEnrichMsg(`✓ ${newReleases.length} new record${newReleases.length > 1 ? 's' : ''} added`);
+          setTimeout(() => setEnrichMsg(''), 4000);
+        }
+      } else {
+        // No new records — just update sync timestamp
+        const now = Date.now();
+        if (existing) await saveCollection(existing.releases, now);
+        setSyncedAt(now);
+        setEnrichMsg('✓ Collection up to date');
+        setTimeout(() => setEnrichMsg(''), 3000);
+      }
+    } catch (e: unknown) {
+      setEnrichMsg(`Sync failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      setTimeout(() => setEnrichMsg(''), 4000);
+    } finally { setSyncing(false); }
+  }
+
+  // ── Check for new records (silent, no UI update) ───────────────────────
+  async function checkForNew() {
+    try {
+      const res = await fetch('/api/collection?page=1&per_page=10&sort=added&sort_order=desc');
+      if (!res.ok) return;
+      const d: CollectionPage = await res.json();
+      const existing = await loadCollectionDB();
+      if (!existing) return;
+      const existingIds = new Set(existing.releases.map((r: unknown) => (r as RawRelease).id));
+      const count = d.releases.filter((r: RawRelease) => !existingIds.has(r.id)).length;
+      if (count > 0) setNewCount(count);
+    } catch { /* silent */ }
   }
 
   async function expandTracklists() {
@@ -300,11 +465,22 @@ export default function DashboardClient({ user }: { user: User }) {
           const res = await fetch('/api/enrich', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ artist: t.trackArtist, title: t.title, genres: t.genres || [], styles: t.styles || [] }),
+            body: JSON.stringify({ artist: t.trackArtist, title: t.title, genres: t.genres || [], styles: t.styles || [], catno: t.catno || '' }),
           });
           if (res.ok) {
             const data = await res.json();
             if (data.bpm || data.key) trackMap[t.id] = { bpm: data.bpm, key: data.key };
+            // If shop found an audio snippet but no key yet, analyse client-side
+            if (data.audioUrl && !data.key) {
+              analyseSnippetKey(data.audioUrl).then(key => {
+                if (key) {
+                  setReleases(prev => prev.map(r => ({ ...r, tracks: r.tracks.map(tr =>
+                    tr.id === t.id ? { ...tr, key, keySource: 'enriched' as const } : tr
+                  )})));
+                  saveTrackOverride({ id: t.id, bpm: data.bpm, key, bpmSource: 'enriched', keySource: 'enriched' });
+                }
+              }).catch(() => {});
+            }
           }
         } catch { /* skip */ }
       }));
@@ -482,6 +658,18 @@ export default function DashboardClient({ user }: { user: User }) {
           {releases.length > 0 && (
             <button onClick={exportToExcel} style={{ ...btn(), display:'inline-flex', alignItems:'center', gap:5 }} title="Export collection and set to Excel">{Icon.download} Export</button>
           )}
+          {releases.length > 0 && (
+            <button
+              onClick={syncCollection}
+              disabled={syncing}
+              title={syncedAt ? `Last synced ${new Date(syncedAt).toLocaleTimeString()}` : 'Sync collection with Discogs'}
+              style={{ ...btn(), display:'inline-flex', alignItems:'center', gap:5, opacity: syncing ? 0.6 : 1,
+                ...(newCount > 0 ? { borderColor: T.accent, color: T.accent } : {}) }}
+            >
+              {Icon.sync}
+              {syncing ? 'Syncing…' : newCount > 0 ? `Sync (${newCount} new)` : syncedAt ? `Synced ${timeSince(syncedAt)}` : 'Sync'}
+            </button>
+          )}
           {releases.length > 0 && !enriching && (
             <button onClick={expandTracklists} style={{ ...btn(), fontSize:'0.7rem', color: enrichedCount > 0 ? T.muted : T.text }}>
               {enrichedCount > 0 ? <>{Icon.save} {enrichedCount}/{totalTrackCount} enriched</> : <>{Icon.bolt} Enrich BPM/Key</>}
@@ -522,6 +710,12 @@ export default function DashboardClient({ user }: { user: User }) {
         {loading && (
           <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, color:T.muted, fontSize:'0.8rem' }}>
             <span style={{ width:8, height:8, borderRadius:'50%', background:T.accent, display:'inline-block' }} />
+            {loadMsg || 'Loading...'}
+          </div>
+        )}
+        {!loading && loadMsg && (
+          <div style={{ background:T.surface2, borderBottom:`1px solid ${T.border}`, padding:'6px 1.5rem', fontSize:'0.7rem', color:T.muted, display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
+            <span style={{ width:6, height:6, borderRadius:'50%', background:T.accent, display:'inline-block', flexShrink:0 }} />
             {loadMsg}
           </div>
         )}

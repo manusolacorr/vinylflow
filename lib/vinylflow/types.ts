@@ -8,6 +8,7 @@ export interface Release {
   styles: string[];
   year: number;
   label: string;
+  catno: string;
   thumb: string | null;
   tracks: Track[];
   incomplete?: boolean;
