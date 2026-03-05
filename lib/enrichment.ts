@@ -6,6 +6,7 @@
  * Sonnet cost: ~$0.001 per track. 894 tracks ≈ $0.90 total.
  */
 import { validateBpmKey } from '@/lib/validateBpmKey';
+import { lookupBeatport } from '@/lib/beatport';
 import { findSnippet } from '@/lib/snippetSources';
 
 const CAM_KEYS = ['1A','1B','2A','2B','3A','3B','4A','4B','5A','5B','6A','6B',
@@ -129,21 +130,37 @@ export async function enrichTrack(
   catno?: string,
 ): Promise<EnrichResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return { bpm: null, key: null, source: 'no_api_key', confidence: 'low', correction: null };
+  if (!apiKey) return { bpm: null, key: null, audioUrl: null, source: 'no_api_key', confidence: 'low', correction: null };
 
   // ── Pass 1: Try decks.de (real vinyl data + audio analysis) ──────────────
   let bpmRaw: number | null = null;
   let keyRaw: string | null = null;
+  let audioUrlOut: string | null = null;
   let source = 'claude';
 
+  // ── Pass 1: Beatport API (real data, no scraping) ───────────────────────
   try {
-    const shop = await findSnippet(artist, title, catno);
-    if (shop.found) {
-      if (shop.bpm) { bpmRaw = shop.bpm; source = shop.source ?? 'shop'; }
-      // audioUrl is returned to the client for browser-side key analysis
-      // Server-side key analysis not possible without MP3 decoder
+    const bp = await lookupBeatport(artist, title, catno);
+    if (bp.found) {
+      if (bp.bpm) { bpmRaw = bp.bpm; source = 'beatport'; }
+      if (bp.key) { keyRaw = bp.key; source = 'beatport'; }
+      if (bp.audioUrl) {
+        // Return audioUrl for client-side key analysis if key not in API
+        audioUrlOut = bp.audioUrl;
+      }
     }
-  } catch { /* fall through to Claude */ }
+  } catch { /* fall through */ }
+
+  // ── Pass 2: Shop scraping fallback (catches vinyl-only not on Beatport) ──
+  if (!bpmRaw) {
+    try {
+      const shop = await findSnippet(artist, title, catno);
+      if (shop.found && shop.bpm) {
+        bpmRaw = shop.bpm;
+        if (source !== 'beatport') source = shop.source ?? 'shop';
+      }
+    } catch { /* fall through to Claude */ }
+  }
 
   // ── Pass 2: Fill gaps with Claude ────────────────────────────────────────
   const needBpm = !bpmRaw;
@@ -158,12 +175,13 @@ export async function enrichTrack(
     if (needKey && claudeKey) { keyRaw = claudeKey; source = source === 'decks.de' ? 'decks.de+claude' : 'claude'; }
   }
 
-  if (!bpmRaw && !keyRaw) return { bpm: null, key: null, source: 'not_found', confidence: 'low', correction: null };
+  if (!bpmRaw && !keyRaw) return { bpm: null, key: null, audioUrl: audioUrlOut, source: 'not_found', confidence: 'low', correction: null };
 
   const validated = validateBpmKey(bpmRaw, keyRaw, genres, styles);
   return {
     bpm:        validated.bpm,
     key:        validated.key,
+    audioUrl:   audioUrlOut,
     source,
     confidence: validated.confidence,
     correction: validated.correction,
