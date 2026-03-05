@@ -151,32 +151,48 @@ export function engine1BuildSet(pool: Track[], targetSize = 20): Track[] {
 
 // ── Engine 2: Re-sort an existing set ────────────────────────────────────
 
-/**
- * Nearest-neighbour re-sort of an existing set.
- * Keeps the first track, then greedily picks the best order
- * for the remaining tracks.
- */
-export function engine2SortSet(tracks: Track[]): Track[] {
-  if (tracks.length <= 1) return [...tracks];
+/** Total score of a full sequence (sum of consecutive transition scores). */
+function totalSetScore(tracks: Track[]): number {
+  let total = 0;
+  const usedReleases: number[] = [];
+  for (let i = 0; i < tracks.length; i++) {
+    usedReleases.push(tracks[i].releaseId);
+    if (i === 0) continue;
+    const recentReleases = usedReleases.slice(-4);
+    total += transitionScore(tracks[i - 1], tracks[i], { recentReleases, usedReleases: [...usedReleases] });
+  }
+  return total;
+}
 
-  const remaining = tracks.slice(1);
-  const sorted    = [tracks[0]];
-  const usedReleases = [tracks[0].releaseId];
+/** Greedy nearest-neighbour starting from a given index. */
+function greedyFrom(tracks: Track[], startIdx: number): Track[] {
+  const remaining = [...tracks];
+  const sorted    = [remaining.splice(startIdx, 1)[0]];
+  const usedReleases = [sorted[0].releaseId];
 
   while (remaining.length > 0) {
     const last = sorted[sorted.length - 1];
     const recentReleases = usedReleases.slice(-4);
-    const context: TransitionContext = { recentReleases, usedReleases: [...usedReleases] };
+    const ctx: TransitionContext = { recentReleases, usedReleases: [...usedReleases] };
 
     let bestScore = -Infinity;
     let bestIdx   = 0;
+    let foundUnblocked = false;
 
     for (let i = 0; i < remaining.length; i++) {
       if (isBlocked(last, remaining[i])) continue;
-      const score = transitionScore(last, remaining[i], context);
-      if (score > bestScore) {
+      const score = transitionScore(last, remaining[i], ctx);
+      if (!foundUnblocked || score > bestScore) {
         bestScore = score;
         bestIdx   = i;
+        foundUnblocked = true;
+      }
+    }
+
+    // If all blocked, pick first non-vinyl-blocked
+    if (!foundUnblocked) {
+      for (let i = 0; i < remaining.length; i++) {
+        if (!isVinylBlocked(last, remaining[i])) { bestIdx = i; break; }
       }
     }
 
@@ -187,6 +203,100 @@ export function engine2SortSet(tracks: Track[]): Track[] {
 
   return sorted;
 }
+
+/** 2-opt improvement: try all segment reversals, keep best. */
+function twoOpt(tracks: Track[]): Track[] {
+  let best = [...tracks];
+  let bestScore = totalSetScore(best);
+  let improved = true;
+
+  while (improved) {
+    improved = false;
+    for (let i = 1; i < best.length - 1; i++) {
+      for (let j = i + 1; j < best.length; j++) {
+        // Reverse segment [i..j]
+        const candidate = [
+          ...best.slice(0, i),
+          ...best.slice(i, j + 1).reverse(),
+          ...best.slice(j + 1),
+        ];
+        const score = totalSetScore(candidate);
+        if (score > bestScore) {
+          best = candidate;
+          bestScore = score;
+          improved = true;
+        }
+      }
+    }
+  }
+
+  return best;
+}
+
+/** Or-opt: try moving each single track to every other position. */
+function orOpt(tracks: Track[]): Track[] {
+  let best = [...tracks];
+  let bestScore = totalSetScore(best);
+  let improved = true;
+
+  while (improved) {
+    improved = false;
+    for (let i = 0; i < best.length; i++) {
+      for (let j = 0; j < best.length; j++) {
+        if (i === j || i === j + 1) continue;
+        const moved = [...best];
+        const [track] = moved.splice(i, 1);
+        const insertAt = j > i ? j : j + 1;
+        moved.splice(Math.min(insertAt, moved.length), 0, track);
+        const score = totalSetScore(moved);
+        if (score > bestScore) {
+          best = moved;
+          bestScore = score;
+          improved = true;
+        }
+      }
+    }
+  }
+
+  return best;
+}
+
+/**
+ * Re-sort an existing set for best harmonic flow.
+ * Strategy:
+ *   1. Multi-start greedy (try every track as starting point for sets ≤25, else 8 random)
+ *   2. Keep best result
+ *   3. Apply 2-opt + or-opt local search to escape local optima
+ */
+export function engine2SortSet(tracks: Track[]): Track[] {
+  if (tracks.length <= 1) return [...tracks];
+
+  // Step 1: Multi-start greedy
+  const startIndices = tracks.length <= 25
+    ? Array.from({ length: tracks.length }, (_, i) => i)
+    : Array.from({ length: 8 }, () => Math.floor(Math.random() * tracks.length));
+
+  let best: Track[] = [];
+  let bestScore = -Infinity;
+
+  for (const startIdx of startIndices) {
+    const candidate = greedyFrom(tracks, startIdx);
+    const score = totalSetScore(candidate);
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+
+  // Step 2: 2-opt improvement
+  best = twoOpt(best);
+
+  // Step 3: Or-opt improvement
+  best = orOpt(best);
+
+  return best;
+}
+
 
 // ── Set analysis: suggestions ─────────────────────────────────────────────
 
