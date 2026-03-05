@@ -27,17 +27,46 @@ export interface DecksTrack {
 
 // ── Step 1: Find the release URL via Google ──────────────────────────────────
 async function searchDecksde(artist: string, title: string): Promise<string | null> {
-  const q = encodeURIComponent(`site:decks.de ${artist} ${title}`);
-  const res = await fetch(`https://www.google.com/search?q=${q}&num=5`, {
-    headers: { 'User-Agent': UA },
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) return null;
-  const html = await res.text();
+  // Strategy 1: Try DuckDuckGo HTML (less bot-blocking than Google)
+  try {
+    const q = encodeURIComponent(`site:decks.de ${artist} ${title}`);
+    const res = await fetch(`https://html.duckduckgo.com/html/?q=${q}`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (res.ok) {
+      const html = await res.text();
+      const match = html.match(/https?:\/\/www\.decks\.de\/track\/[^"&\s<>]+/);
+      if (match) return match[0].replace('/en', '').split('?')[0];
+    }
+  } catch { /* try next */ }
 
-  // Extract first decks.de/track/ URL from Google results
-  const match = html.match(/https?:\/\/www\.decks\.de\/track\/[^"&\s>]+/);
-  return match ? match[0].replace('/en', '') : null;
+  // Strategy 2: Direct URL slug construction as fallback
+  // decks.de uses {artist_slug}-{title_slug} pattern
+  const slugify = (s: string) => s.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .trim()
+    .replace(/\s+/g, '_');
+  const artistSlug = slugify(artist);
+  const titleSlug  = slugify(title);
+  const guessUrl   = `https://www.decks.de/track/${artistSlug}-${titleSlug}`;
+  try {
+    const res = await fetch(guessUrl, {
+      headers: { 'User-Agent': UA },
+      signal: AbortSignal.timeout(8000),
+    });
+    // If it redirects or returns 200 with track content, we found it
+    if (res.ok) {
+      const html = await res.text();
+      if (html.includes('BPM') && html.includes('Tracklist')) return guessUrl;
+    }
+  } catch { /* not found */ }
+
+  return null;
 }
 
 // ── Step 2: Fetch + parse the release page ───────────────────────────────────
