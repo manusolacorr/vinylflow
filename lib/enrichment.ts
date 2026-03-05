@@ -6,6 +6,8 @@
  * Sonnet cost: ~$0.001 per track. 894 tracks ≈ $0.90 total.
  */
 import { validateBpmKey } from '@/lib/validateBpmKey';
+import { lookupDecksde, fetchAudioSnippet } from '@/lib/decksde';
+import { analyseAudio } from '@/lib/audioAnalyse';
 
 const CAM_KEYS = ['1A','1B','2A','2B','3A','3B','4A','4B','5A','5B','6A','6B',
                   '7A','7B','8A','8B','9A','9B','10A','10B','11A','11B','12A','12B'];
@@ -82,44 +84,33 @@ Respond ONLY with: {"bpm": 120}`;
   return parsed?.bpm ?? null;
 }
 
-// ── Pass 2: Key via Sonnet + web search ──────────────────────────────────
+// ── Pass 2: Key via Sonnet ────────────────────────────────────────────────
+// Note: web search was tried but too slow + unreliable for obscure vinyl.
+// Sonnet works well for well-known records; obscure ones need the audio analyser.
 async function getKey(artist: string, title: string, genres: string[], styles: string[], bpm: number | null, apiKey: string): Promise<string | null> {
   const genreHint = [...genres, ...styles].slice(0, 4).join(', ') || 'unknown';
   const bpmHint = bpm ? `BPM is ${bpm}. ` : '';
 
-  const prompt = `Find the musical key for this track: "${artist} - ${title}" (${genreHint}). ${bpmHint}
+  const prompt = `You are an expert DJ and music analyst with deep knowledge of electronic music, soul, funk, disco and jazz records.
 
-Search for it on Tunebat, Beatport, or any music database. Look for the exact Camelot key (e.g. 11A, 8B, 4A).
+Identify the musical key of this specific track: "${artist} - ${title}"
+Genre: ${genreHint}
+${bpmHint}
+Think about what you know about this specific record from Beatport, Discogs, or music databases.
+
+IMPORTANT: Do NOT default to A minor / 8A. Only use 8A if genuinely confident.
+The 24 Camelot values are equally likely — pick the correct one for this track.
 
 Camelot reference:
 C maj=8B  Db maj=3B  D maj=10B  Eb maj=5B  E maj=12B  F maj=7B  Gb maj=2B  G maj=9B  Ab maj=4B  A maj=11B  Bb maj=6B  B maj=1B
 C min=5A  Db min=12A  D min=7A  Eb min=2A  E min=9A  F min=4A  Gb min=11A  G min=6A  Ab min=1A  A min=8A  Bb min=3A  B min=10A
 
-Respond ONLY with JSON: {"key": "11A"}`;
+Respond ONLY with: {"key": "11A"}`;
 
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1024,
-        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-        messages: [{ role: 'user', content: prompt }],
-      }),
-      signal: AbortSignal.timeout(25000),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    // Extract text from all content blocks (may include tool_use + text)
-    const text = (data?.content ?? [])
-      .filter((b: { type: string }) => b.type === 'text')
-      .map((b: { text: string }) => b.text)
-      .join('\n');
-    if (!text) return null;
-    const parsed = parseResponse(text);
-    return parsed?.key ?? null;
-  } catch { return null; }
+  const text = await claudeRequest('claude-sonnet-4-6', prompt, 50, apiKey);
+  if (!text) return null;
+  const parsed = parseResponse(text);
+  return parsed?.key ?? null;
 }
 
 // ── Main export ───────────────────────────────────────────────────────────
@@ -140,11 +131,56 @@ export async function enrichTrack(
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return { bpm: null, key: null, source: 'no_api_key', confidence: 'low', correction: null };
 
-  // Run both passes in parallel
-  const [bpmRaw, keyRaw] = await Promise.all([
-    getBpm(artist, title, genres, styles, apiKey),
-    getKey(artist, title, genres, styles, null, apiKey),
-  ]);
+  // ── Pass 1: Try decks.de (real vinyl data + audio analysis) ──────────────
+  let bpmRaw: number | null = null;
+  let keyRaw: string | null = null;
+  let source = 'claude';
+
+  try {
+    const decks = await lookupDecksde(artist, title);
+    if (decks.found) {
+      bpmRaw = decks.bpm;
+      source = 'decks.de';
+
+      // Try to get key from audio snippet
+      if (decks.audioUrl) {
+        const audioBuffer = await fetchAudioSnippet(decks.audioUrl);
+        if (audioBuffer) {
+          // Decode raw PCM — for MP3 we need a decoder. Use a simple
+          // float32 extraction from WAV-like headers if available,
+          // otherwise fall through to Claude for key.
+          const bytes = new Uint8Array(audioBuffer);
+          // Check for WAV header (RIFF)
+          if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) {
+            // Parse WAV: sample rate at offset 24, data starts after 44 bytes
+            const sampleRate = bytes[24] | (bytes[25] << 8) | (bytes[26] << 16) | (bytes[27] << 24);
+            const dataStart = 44;
+            const samples = new Float32Array((audioBuffer.byteLength - dataStart) / 2);
+            const view = new DataView(audioBuffer);
+            for (let i = 0; i < samples.length; i++) {
+              samples[i] = view.getInt16(dataStart + i * 2, true) / 32768;
+            }
+            const result = analyseAudio(samples, sampleRate);
+            if (result.key) keyRaw = result.key;
+            if (result.bpm && !bpmRaw) bpmRaw = result.bpm;
+          }
+        }
+      }
+    }
+  } catch { /* fall through to Claude */ }
+
+  // ── Pass 2: Fill gaps with Claude ────────────────────────────────────────
+  const needBpm = !bpmRaw;
+  const needKey = !keyRaw;
+
+  if (needBpm || needKey) {
+    const [claudeBpm, claudeKey] = await Promise.all([
+      needBpm ? getBpm(artist, title, genres, styles, apiKey) : Promise.resolve(null),
+      needKey ? getKey(artist, title, genres, styles, bpmRaw, apiKey) : Promise.resolve(null),
+    ]);
+    if (needBpm && claudeBpm) { bpmRaw = claudeBpm; source = source === 'decks.de' ? 'decks.de+claude' : 'claude'; }
+    if (needKey && claudeKey) { keyRaw = claudeKey; source = source === 'decks.de' ? 'decks.de+claude' : 'claude'; }
+  }
 
   if (!bpmRaw && !keyRaw) return { bpm: null, key: null, source: 'not_found', confidence: 'low', correction: null };
 
@@ -152,7 +188,7 @@ export async function enrichTrack(
   return {
     bpm:        validated.bpm,
     key:        validated.key,
-    source:     'claude',
+    source,
     confidence: validated.confidence,
     correction: validated.correction,
   };
