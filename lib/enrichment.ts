@@ -75,10 +75,9 @@ async function claudeRequest(model: string, prompt: string, maxTokens: number, a
 // ── Pass 1: BPM via Haiku ─────────────────────────────────────────────────
 async function getBpm(artist: string, title: string, genres: string[], styles: string[], apiKey: string): Promise<number | null> {
   const genreHint = [...genres, ...styles].slice(0, 4).join(', ') || 'unknown';
-  const prompt = `Return the DJ-playable BPM for: "${artist} - ${title}" (${genreHint}).
-Rules: never half-time/double-time. Ranges: House 118-130, Deep House 118-126, Techno 128-145, Disco 108-128, Funk 85-115, Soul 70-110.
-Respond ONLY with: {"bpm": 120}`;
-  const text = await claudeRequest('claude-haiku-4-5-20251001', prompt, 30, apiKey);
+  const prompt = `Return the DJ-playable BPM for: "${artist} - ${title}" (${genreHint}).\nRules: never half-time/double-time. Ranges: House 118-130, Deep House 118-126, Techno 128-145, Disco 108-128, Funk 85-115, Soul 70-110.\nRespond ONLY with: {"bpm": 120}`;
+  let text = await claudeRequest('claude-haiku-4-5-20251001', prompt, 100, apiKey);
+  if (!text) text = await claudeRequest('claude-sonnet-4-6', prompt, 100, apiKey);
   if (!text) return null;
   const parsed = parseResponse(text);
   return parsed?.bpm ?? null;
