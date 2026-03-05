@@ -73,43 +73,32 @@ async function claudeRequest(model: string, prompt: string, maxTokens: number, a
 }
 
 // ── Pass 1: BPM via Haiku ─────────────────────────────────────────────────
-async function getBpm(artist: string, title: string, genres: string[], styles: string[], apiKey: string): Promise<number | null> {
+async function getBpmAndKey(
+  artist: string,
+  title: string,
+  genres: string[],
+  styles: string[],
+  apiKey: string,
+): Promise<{ bpm: number | null; key: string | null }> {
   const genreHint = [...genres, ...styles].slice(0, 4).join(', ') || 'unknown';
-  const prompt = `Return the DJ-playable BPM for: "${artist} - ${title}" (${genreHint}).\nRules: never half-time/double-time. Ranges: House 118-130, Deep House 118-126, Techno 128-145, Disco 108-128, Funk 85-115, Soul 70-110.\nRespond ONLY with: {"bpm": 120}`;
-  let text = await claudeRequest('claude-haiku-4-5-20251001', prompt, 100, apiKey);
-  if (!text) text = await claudeRequest('claude-sonnet-4-6', prompt, 100, apiKey);
-  if (!text) return null;
+  const prompt = `You are an expert DJ with deep knowledge of electronic music, house, techno, disco, funk and soul.
+
+For the track: "${artist} - ${title}" (${genreHint})
+
+Return BOTH the BPM and Camelot key. Rules:
+- BPM: never half-time or double-time. House/Deep House: 118-130, Techno: 128-145, Disco: 108-128, Funk: 85-115, Soul: 70-110
+- Key: use the exact Camelot value from this list:
+  1A=Ab min  1B=B maj   2A=Eb min  2B=F# maj  3A=Bb min  3B=Db maj
+  4A=F min   4B=Ab maj  5A=C min   5B=Eb maj  6A=G min   6B=Bb maj
+  7A=D min   7B=F maj   8A=A min   8B=C maj   9A=E min   9B=G maj
+  10A=B min  10B=D maj  11A=F# min 11B=A maj  12A=C# min 12B=E maj
+
+Respond ONLY with JSON: {"bpm": 120, "key": "11A"}`;
+
+  const text = await claudeRequest('claude-sonnet-4-6', prompt, 60, apiKey);
+  if (!text) return { bpm: null, key: null };
   const parsed = parseResponse(text);
-  return parsed?.bpm ?? null;
-}
-
-// ── Pass 2: Key via Sonnet ────────────────────────────────────────────────
-// Note: web search was tried but too slow + unreliable for obscure vinyl.
-// Sonnet works well for well-known records; obscure ones need the audio analyser.
-async function getKey(artist: string, title: string, genres: string[], styles: string[], bpm: number | null, apiKey: string): Promise<string | null> {
-  const genreHint = [...genres, ...styles].slice(0, 4).join(', ') || 'unknown';
-  const bpmHint = bpm ? `BPM is ${bpm}. ` : '';
-
-  const prompt = `You are an expert DJ and music analyst with deep knowledge of electronic music, soul, funk, disco and jazz records.
-
-Identify the musical key of this specific track: "${artist} - ${title}"
-Genre: ${genreHint}
-${bpmHint}
-Think about what you know about this specific record from Beatport, Discogs, or music databases.
-
-IMPORTANT: Do NOT default to A minor / 8A. Only use 8A if genuinely confident.
-The 24 Camelot values are equally likely — pick the correct one for this track.
-
-Camelot reference:
-C maj=8B  Db maj=3B  D maj=10B  Eb maj=5B  E maj=12B  F maj=7B  Gb maj=2B  G maj=9B  Ab maj=4B  A maj=11B  Bb maj=6B  B maj=1B
-C min=5A  Db min=12A  D min=7A  Eb min=2A  E min=9A  F min=4A  Gb min=11A  G min=6A  Ab min=1A  A min=8A  Bb min=3A  B min=10A
-
-Respond ONLY with: {"key": "11A"}`;
-
-  const text = await claudeRequest('claude-sonnet-4-6', prompt, 50, apiKey);
-  if (!text) return null;
-  const parsed = parseResponse(text);
-  return parsed?.key ?? null;
+  return { bpm: parsed?.bpm ?? null, key: parsed?.key ?? null };
 }
 
 // ── Main export ───────────────────────────────────────────────────────────
@@ -138,14 +127,12 @@ export async function enrichTrack(
   let source = 'claude';
 
   // ── Run Beatport + Claude in TRUE parallel ────────────────────────────────
-  // Beatport wins if found (real data). Claude is always the safety net.
-  const [bp, claudeBpm, claudeKey] = await Promise.all([
+  const [bp, claudeResult] = await Promise.all([
     lookupBeatport(artist, title, catno).catch(() => null),
-    getBpm(artist, title, genres, styles, apiKey).catch(() => null),
-    getKey(artist, title, genres, styles, null, apiKey).catch(() => null),
+    getBpmAndKey(artist, title, genres, styles, apiKey).catch(() => null),
   ]);
 
-  // Beatport takes priority when found
+  // Beatport takes priority when found (real data)
   if (bp?.found) {
     if (bp.bpm) { bpmRaw = bp.bpm; source = 'beatport'; }
     if (bp.key) { keyRaw = bp.key; source = 'beatport'; }
@@ -153,8 +140,8 @@ export async function enrichTrack(
   }
 
   // Fill gaps with Claude results
-  if (!bpmRaw && claudeBpm) { bpmRaw = claudeBpm; }
-  if (!keyRaw && claudeKey) { keyRaw = claudeKey; }
+  if (!bpmRaw && claudeResult?.bpm) bpmRaw = claudeResult.bpm;
+  if (!keyRaw && claudeResult?.key) keyRaw = claudeResult.key;
   if (source !== 'beatport' && (bpmRaw || keyRaw)) source = 'claude';
   if (source === 'beatport' && (!bp?.bpm || !bp?.key)) source = 'beatport+claude';
 
