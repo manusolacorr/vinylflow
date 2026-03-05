@@ -529,7 +529,7 @@ export default function DashboardClient({ user }: { user: User }) {
   const activePills = [
     ...Array.from(roleFilters).map(id => ({ label: `${ROLES[id]?.emoji} ${ROLES[id]?.label}`, color: ROLES[id]?.color||T.accent })),
     ...Array.from(genreFilters).map(g => ({ label: g, color: T.accent })),
-    ...Array.from(styleFilters).map(s => ({ label: s, color: T.accent2 })),
+    ...Array.from(styleFilters).map(s => ({ label: s, color: '#5a4faa' })),
     ...Array.from(decadeFilters).map(d => ({ label: d, color: '#555' })),
   ];
 
@@ -653,8 +653,8 @@ export default function DashboardClient({ user }: { user: User }) {
                 {allStyles.length > 0 && (
                   <div style={{ display:'flex', gap:4, alignItems:'center', flexWrap:'wrap' }}>
                     <span style={{ fontSize:'0.6rem', color:T.muted, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em' }}>Style</span>
-                    <button onClick={() => setStyleFilters(new Set())} style={chip(styleFilters.size===0, T.accent2)}>All</button>
-                    {allStyles.slice(0,16).map(s => <button key={s} onClick={() => toggleFilter(setStyleFilters, s)} style={chip(styleFilters.has(s), T.accent2)}>{s}</button>)}
+                    <button onClick={() => setStyleFilters(new Set())} style={chip(styleFilters.size===0, '#5a4faa')}>All</button>
+                    {allStyles.slice(0,16).map(s => <button key={s} onClick={() => toggleFilter(setStyleFilters, s)} style={chip(styleFilters.has(s), '#5a4faa')}>{s}</button>)}
                   </div>
                 )}
                 {allDecades.length > 0 && (
