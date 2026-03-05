@@ -165,6 +165,8 @@ export default function DashboardClient({ user }: { user: User }) {
   const [loadMsg, setLoadMsg] = useState('');
   const [error, setError] = useState('');
   const [enriching, setEnriching] = useState(false);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [enrichMsg, setEnrichMsg] = useState('');
   const [enrichProgress, setEnrichProgress] = useState(0);
   const [search, setSearch] = useState('');
@@ -522,6 +524,24 @@ export default function DashboardClient({ user }: { user: User }) {
 
   function autoSuggest() { const pool=filteredTracks.length>0?filteredTracks:allTracks(releases); setDjSet(engine1BuildSet(pool,20)); setTab('set'); }
   function smartSort() { if (djSet.length>1) setDjSet(engine2SortSet(djSet)); }
+
+  function handleDragStart(i: number) { setDragIndex(i); }
+  function handleDragOver(e: React.DragEvent, i: number) {
+    e.preventDefault();
+    if (dragIndex !== null && i !== dragIndex) setDragOverIndex(i);
+  }
+  function handleDrop(e: React.DragEvent, i: number) {
+    e.preventDefault();
+    if (dragIndex !== null && dragIndex !== i) {
+      const arr = [...djSet];
+      const [moved] = arr.splice(dragIndex, 1);
+      arr.splice(i, 0, moved);
+      setDjSet(arr);
+    }
+    setDragIndex(null);
+    setDragOverIndex(null);
+  }
+  function handleDragEnd() { setDragIndex(null); setDragOverIndex(null); }
   function toggleFilter<F>(setter: React.Dispatch<React.SetStateAction<Set<F>>>, val: F) {
     setter(prev => { const s=new Set(prev); s.has(val)?s.delete(val):s.add(val); return s; }); setPage(1);
   }
@@ -752,7 +772,14 @@ export default function DashboardClient({ user }: { user: User }) {
                     const drift=prev?pitchDrift(prev.bpm,t.bpm):null;
                     const blocked=prev?sameSide(prev,t):false;
                     return (
-                      <div key={t.id}>
+                      <div key={t.id}
+                        draggable
+                        onDragStart={() => handleDragStart(i)}
+                        onDragOver={e => handleDragOver(e, i)}
+                        onDrop={e => handleDrop(e, i)}
+                        onDragEnd={handleDragEnd}
+                        style={{ opacity: dragIndex === i ? 0.45 : 1, outline: dragOverIndex === i ? `2px solid #5a4faa` : 'none', borderRadius: 9 }}
+                      >
                         {i > 0 && (
                           <div style={{ display:'flex', alignItems:'center', gap:6, padding:'2px 36px', marginBottom:2 }}>
                             <div style={{ width:1, height:10, background:T.border }} />
