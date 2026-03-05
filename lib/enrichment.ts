@@ -115,9 +115,10 @@ Respond ONLY with: {"key": "11A"}`;
 
 // ── Main export ───────────────────────────────────────────────────────────
 export interface EnrichResult {
-  bpm: number | null;
-  key: string | null;
-  source: string;
+  bpm:        number | null;
+  key:        string | null;
+  audioUrl:   string | null;
+  source:     string;
   confidence: 'high' | 'low';
   correction: string | null;
 }
