@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { enrichTrack } from '@/lib/geminiLookup';
+import { enrichTrack } from '@/lib/enrichment';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 10;
 

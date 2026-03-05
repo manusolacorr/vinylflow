@@ -1,5 +1,5 @@
 /**
- * Two-pass enrichment:
+ * enrichment.ts — Two-pass BPM/key enrichment:
  * Pass 1 — BPM via Claude Haiku (~500ms, cheap, works well)
  * Pass 2 — Key via Claude Sonnet (better music knowledge, targeted prompt)
  *
