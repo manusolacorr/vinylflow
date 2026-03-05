@@ -133,48 +133,31 @@ export async function enrichTrack(
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return { bpm: null, key: null, audioUrl: null, source: 'no_api_key', confidence: 'low', correction: null };
 
-  // ── Pass 1: Try decks.de (real vinyl data + audio analysis) ──────────────
   let bpmRaw: number | null = null;
   let keyRaw: string | null = null;
   let audioUrlOut: string | null = null;
   let source = 'claude';
 
-  // ── Pass 1: Beatport API (real data, no scraping) ───────────────────────
-  try {
-    const bp = await lookupBeatport(artist, title, catno);
-    if (bp.found) {
-      if (bp.bpm) { bpmRaw = bp.bpm; source = 'beatport'; }
-      if (bp.key) { keyRaw = bp.key; source = 'beatport'; }
-      if (bp.audioUrl) {
-        // Return audioUrl for client-side key analysis if key not in API
-        audioUrlOut = bp.audioUrl;
-      }
-    }
-  } catch { /* fall through */ }
+  // ── Run Beatport + Claude in TRUE parallel ────────────────────────────────
+  // Beatport wins if found (real data). Claude is always the safety net.
+  const [bp, claudeBpm, claudeKey] = await Promise.all([
+    lookupBeatport(artist, title, catno).catch(() => null),
+    getBpm(artist, title, genres, styles, apiKey).catch(() => null),
+    getKey(artist, title, genres, styles, null, apiKey).catch(() => null),
+  ]);
 
-  // ── Pass 2: Shop scraping fallback (catches vinyl-only not on Beatport) ──
-  if (!bpmRaw) {
-    try {
-      const shop = await findSnippet(artist, title, catno);
-      if (shop.found && shop.bpm) {
-        bpmRaw = shop.bpm;
-        if (source !== 'beatport') source = shop.source ?? 'shop';
-      }
-    } catch { /* fall through to Claude */ }
+  // Beatport takes priority when found
+  if (bp?.found) {
+    if (bp.bpm) { bpmRaw = bp.bpm; source = 'beatport'; }
+    if (bp.key) { keyRaw = bp.key; source = 'beatport'; }
+    if (bp.audioUrl) audioUrlOut = bp.audioUrl;
   }
 
-  // ── Pass 2: Fill gaps with Claude ────────────────────────────────────────
-  const needBpm = !bpmRaw;
-  const needKey = !keyRaw;
-
-  if (needBpm || needKey) {
-    const [claudeBpm, claudeKey] = await Promise.all([
-      needBpm ? getBpm(artist, title, genres, styles, apiKey) : Promise.resolve(null),
-      needKey ? getKey(artist, title, genres, styles, bpmRaw, apiKey) : Promise.resolve(null),
-    ]);
-    if (needBpm && claudeBpm) { bpmRaw = claudeBpm; source = source === 'decks.de' ? 'decks.de+claude' : 'claude'; }
-    if (needKey && claudeKey) { keyRaw = claudeKey; source = source === 'decks.de' ? 'decks.de+claude' : 'claude'; }
-  }
+  // Fill gaps with Claude results
+  if (!bpmRaw && claudeBpm) { bpmRaw = claudeBpm; }
+  if (!keyRaw && claudeKey) { keyRaw = claudeKey; }
+  if (source !== 'beatport' && (bpmRaw || keyRaw)) source = 'claude';
+  if (source === 'beatport' && (!bp?.bpm || !bp?.key)) source = 'beatport+claude';
 
   if (!bpmRaw && !keyRaw) return { bpm: null, key: null, audioUrl: audioUrlOut, source: 'not_found', confidence: 'low', correction: null };
 
